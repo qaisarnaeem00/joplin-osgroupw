@@ -304,6 +304,7 @@ export default class PromptDialog extends React.Component<Props, any> {
 				onKeyDown={onKeyDown}
 				filterOption={(option, rawInput) => {
 					const input = (rawInput || '').trim().normalize('NFC').toLowerCase();
+					if (!input) return false;
 					const label = (option.label || '').trim().normalize('NFC').toLowerCase();
 					return label.includes(input);
 				}}
