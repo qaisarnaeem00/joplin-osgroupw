@@ -182,6 +182,7 @@ interface Props {
 	noteListRendererIds: string[];
 	noteListRendererId: string;
 	windowId: string;
+	selectedNoteId: string;
 	secondaryWindowFocused: boolean;
 	showMenuBar: boolean;
 	syncPending: boolean;
@@ -446,6 +447,7 @@ function useMenu(props: Props) {
 									(action: any) => props.dispatch(action),
 									module,
 									{
+										sourceNoteIds: props.secondaryWindowFocused && props.selectedNoteId ? [props.selectedNoteId] : undefined,
 										plugins: pluginsRef.current,
 										customCss: props.customCss,
 									},
@@ -472,7 +474,9 @@ function useMenu(props: Props) {
 			});
 
 			exportItems.push(
-				menuItemDic.exportPdf,
+				props.secondaryWindowFocused && props.selectedNoteId
+					? menuUtils.commandToStatefulMenuItem('exportPdf', [props.selectedNoteId])
+					: menuItemDic.exportPdf,
 			);
 
 			// We need a dummy entry, otherwise the ternary operator to show a
@@ -614,7 +618,7 @@ function useMenu(props: Props) {
 					visible: !shim.isMac(),
 					submenu: importItems,
 				}, {
-					label: _('Export all'),
+					label: props.secondaryWindowFocused ? _('Export') : _('Export all'),
 					visible: !shim.isMac(),
 					submenu: exportItems,
 				}, {
@@ -1123,10 +1127,15 @@ function MenuBar(props: Props): any {
 const mapStateToProps = (state: AppState): Partial<Props> => {
 	const whenClauseContext = stateToWhenClauseContext(state, { windowId: state.windowId });
 
+	const windowState = stateUtils.windowStateById(state, state.windowId);
+	const selectedNoteId = stateUtils.selectedNoteId(windowState);
+
 	const secondaryWindowFocused = state.windowId !== defaultWindowId;
 
 	return {
 		windowId: state.windowId,
+		selectedNoteId,
+		secondaryWindowFocused,
 		menuItemProps: menuUtils.commandsToMenuItemProps(commandNames.concat(getPluginCommandNames(state.pluginService.plugins)), whenClauseContext),
 		locale: state.settings.locale,
 		// Secondary windows can only show the main screen
