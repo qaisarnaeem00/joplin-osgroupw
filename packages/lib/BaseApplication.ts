@@ -98,6 +98,7 @@ export default class BaseApplication {
 	private scheduleAutoAddResourcesIID_: ReturnType<typeof shim.setTimeout> = null;
 	protected database_: JoplinDatabase = null;
 	private profileConfig_: ProfileConfig = null;
+	private refreshNotesEvent_ = { cancelled: false };
 
 	protected showStackTraces_ = false;
 	protected showPromptString_ = false;
@@ -217,6 +218,9 @@ export default class BaseApplication {
 	}
 
 	public async refreshNotes(state: State, useSelectedNoteId = false, noteHash = '') {
+		this.refreshNotesEvent_.cancelled = true;
+		const event = { cancelled: false };
+		this.refreshNotesEvent_ = event;
 		let parentType: string | number = state.notesParentType;
 		let parentId = null;
 
@@ -268,6 +272,7 @@ export default class BaseApplication {
 				notes = await Note.previews(parentId, options);
 			}
 		}
+		if (event.cancelled) return;
 
 		this.store().dispatch({
 			type: 'SET_HIGHLIGHTED',
