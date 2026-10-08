@@ -1,3 +1,4 @@
+import { compileQuery, queryBuilder, sql, selectQuery, literalStrings } from '../services/database/queryBuilder';
 import BaseModel from '../BaseModel';
 import { NoteEntity, SqlQuery } from '../services/database/types';
 import BaseItem from './BaseItem';
@@ -25,20 +26,27 @@ export default class NoteResource extends BaseModel {
 	public static async applySharedStatusToLinkedResources() {
 		const queries: SqlQuery[] = [];
 
-		queries.push({ sql: `
-			UPDATE resources
-			SET is_shared = 0
-		` });
+		queries.push(compileQuery(queryBuilder.updateTable('resources').set({ 'is_shared': sql.val(0) })));
 
-		queries.push({ sql: `
-			UPDATE resources
-			SET is_shared = 1
-			WHERE id IN (
-				SELECT DISTINCT note_resources.resource_id
-				FROM notes JOIN note_resources ON notes.id = note_resources.note_id
-				WHERE notes.is_shared = 1
-			)
-		` });
+		queries.push(compileQuery(
+			queryBuilder
+				.updateTable('resources')
+				.set({ is_shared: sql.val(1) })
+				.where((eb) =>
+					eb(
+						sql.ref('id'),
+						'in',
+						queryBuilder
+							.selectFrom('notes')
+							.innerJoin('note_resources', (join) =>
+								join.on((eb) => eb(sql.ref('notes.id'), '=', sql.ref('note_resources.note_id'))),
+							)
+							.select(['note_resources.resource_id'])
+							.distinct()
+							.where((eb) => eb(sql.ref('notes.is_shared'), '=', sql.val(1))),
+					),
+				),
+		));
 
 		await this.db().transactionExecBatch(queries);
 	}
@@ -78,7 +86,17 @@ export default class NoteResource extends BaseModel {
 	// }
 
 	public static async associatedNoteIds(resourceId: string): Promise<string[]> {
-		const rows = await this.modelSelectAll('SELECT note_id FROM note_resources WHERE resource_id = ? AND is_associated = 1', [resourceId]);
+		const rows = await this.modelSelectAll(compileQuery(
+			queryBuilder
+				.selectFrom('note_resources')
+				.select(['note_id'])
+				.where((eb) =>
+					eb.and([
+						eb(sql.ref('resource_id'), '=', sql.val(resourceId)),
+						eb(sql.ref('is_associated'), '=', sql.val(1)),
+					]),
+				),
+		));
 		return rows.map((r: { note_id: string }) => r.note_id);
 	}
 
@@ -89,13 +107,9 @@ export default class NoteResource extends BaseModel {
 		fields.push('resource_id');
 		fields.push('note_id');
 
-		const rows = await this.modelSelectAll(`
-			SELECT ${this.selectFields({ ...options, fields })}
-			FROM note_resources
-			LEFT JOIN notes
-			ON notes.id = note_resources.note_id
-			WHERE resource_id IN (${this.escapeIdsForSql(resourceIds)}) AND is_associated = 1
-		`);
+		const rows = await this.modelSelectAll(selectQuery('note_resources', fields)
+			.leftJoin('notes', 'notes.id', 'note_resources.note_id')
+			.where('resource_id', 'in', literalStrings(resourceIds)).where('is_associated', '=', 1));
 
 		const output: Record<string, AssociatedResourceNote[]> = {};
 		for (const row of rows) {
@@ -107,7 +121,12 @@ export default class NoteResource extends BaseModel {
 	}
 
 	public static async setAssociatedResources(noteId: string, resourceIds: string[]) {
-		const existingRows = await this.modelSelectAll('SELECT * FROM note_resources WHERE note_id = ?', [noteId]);
+		const existingRows = await this.modelSelectAll(compileQuery(
+			queryBuilder
+				.selectFrom('note_resources')
+				.selectAll()
+				.where((eb) => eb(sql.ref('note_id'), '=', sql.val(noteId))),
+		));
 
 		const notProcessedResourceIds = resourceIds.slice();
 		const queries = [];
@@ -116,22 +135,54 @@ export default class NoteResource extends BaseModel {
 			const resourceIndex = resourceIds.indexOf(row.resource_id);
 
 			if (resourceIndex >= 0) {
-				queries.push({ sql: 'UPDATE note_resources SET last_seen_time = ?, is_associated = 1 WHERE id = ?', params: [Date.now(), row.id] });
+				queries.push(compileQuery(
+					queryBuilder
+						.updateTable('note_resources')
+						.set({ last_seen_time: sql.val(Date.now()), is_associated: sql.val(1) })
+						.where((eb) => eb(sql.ref('id'), '=', sql.val(row.id))),
+				));
 				notProcessedResourceIds.splice(notProcessedResourceIds.indexOf(row.resource_id), 1);
 			} else {
-				queries.push({ sql: 'UPDATE note_resources SET is_associated = 0 WHERE id = ?', params: [row.id] });
+				queries.push(compileQuery(
+					queryBuilder
+						.updateTable('note_resources')
+						.set({ is_associated: sql.val(0) })
+						.where((eb) => eb(sql.ref('id'), '=', sql.val(row.id))),
+				));
 			}
 		}
 
 		for (let i = 0; i < notProcessedResourceIds.length; i++) {
-			queries.push({ sql: 'INSERT INTO note_resources (note_id, resource_id, is_associated, last_seen_time) VALUES (?, ?, ?, ?)', params: [noteId, notProcessedResourceIds[i], 1, Date.now()] });
+			queries.push(compileQuery(
+				queryBuilder
+					.insertInto('note_resources')
+					.values([
+						{
+							note_id: sql.val(noteId),
+							resource_id: sql.val(notProcessedResourceIds[i]),
+							is_associated: sql.val(1),
+							last_seen_time: sql.val(Date.now()),
+						},
+					]),
+			));
 		}
 
 		await this.db().transactionExecBatch(queries);
 	}
 
 	public static async addOrphanedResources() {
-		const missingResources = await this.db().selectAll('SELECT id FROM resources WHERE id NOT IN (SELECT DISTINCT resource_id FROM note_resources)');
+		const missingResources = await this.db().selectAll(compileQuery(
+			queryBuilder
+				.selectFrom('resources')
+				.select(['id'])
+				.where((eb) =>
+					eb(
+						sql.ref('id'),
+						'not in',
+						queryBuilder.selectFrom('note_resources').select(['resource_id']).distinct(),
+					),
+				),
+		));
 		const queries = [];
 		for (let i = 0; i < missingResources.length; i++) {
 			const id = missingResources[i].id;
@@ -147,36 +198,60 @@ export default class NoteResource extends BaseModel {
 			const hasBeenSynced = await BaseItem.itemHasBeenSynced(id);
 			const lastSeenTime = hasBeenSynced ? 0 : Date.now();
 
-			queries.push({
-				sql: 'INSERT INTO note_resources (note_id, resource_id, is_associated, last_seen_time) VALUES (?, ?, ?, ?)',
-				params: ['', id, 0, lastSeenTime] },
+			queries.push(compileQuery(
+				queryBuilder
+					.insertInto('note_resources')
+					.values([
+						{
+							note_id: sql.val(''),
+							resource_id: sql.val(id),
+							is_associated: sql.val(0),
+							last_seen_time: sql.val(lastSeenTime),
+						},
+					]),
+			),
 			);
 		}
 		await this.db().transactionExecBatch(queries);
 	}
 
 	public static async remove(noteId: string) {
-		await this.db().exec({ sql: 'UPDATE note_resources SET is_associated = 0 WHERE note_id = ?', params: [noteId] });
+		await this.db().exec(compileQuery(
+			queryBuilder
+				.updateTable('note_resources')
+				.set({ is_associated: sql.val(0) })
+				.where((eb) => eb(sql.ref('note_id'), '=', sql.val(noteId))),
+		));
 	}
 
 	public static async orphanResources(expiryDelay: number = null) {
 		if (expiryDelay === null) expiryDelay = 1000 * 60 * 60 * 24 * 10;
 		const cutOffTime = Date.now() - expiryDelay;
 		const output = await this.modelSelectAll(
-			`
-			SELECT resource_id, sum(is_associated)
-			FROM note_resources
-			GROUP BY resource_id
-			HAVING sum(is_associated) <= 0
-			AND last_seen_time < ?
-			AND last_seen_time != 0
-		`,
-			[cutOffTime],
+			compileQuery(
+				queryBuilder
+					.selectFrom('note_resources')
+					.select(['resource_id', queryBuilder.fn('sum', [sql.ref('is_associated')]).as('sum(is_associated)')])
+					.groupBy(['resource_id'])
+					.having((eb) =>
+						eb.and([
+							eb.and([
+								eb(queryBuilder.fn('sum', [sql.ref('is_associated')]), '<=', sql.val(0)),
+								eb(sql.ref('last_seen_time'), '<', sql.val(cutOffTime)),
+							]),
+							eb(sql.ref('last_seen_time'), '!=', sql.val(0)),
+						]),
+					),
+			),
 		);
 		return output.map((r: { resource_id: string }) => r.resource_id);
 	}
 
 	public static async deleteByResource(resourceId: string) {
-		await this.db().exec('DELETE FROM note_resources WHERE resource_id = ?', [resourceId]);
+		await this.db().exec(compileQuery(
+			queryBuilder
+				.deleteFrom('note_resources')
+				.where((eb) => eb(sql.ref('resource_id'), '=', sql.val(resourceId))),
+		));
 	}
 }

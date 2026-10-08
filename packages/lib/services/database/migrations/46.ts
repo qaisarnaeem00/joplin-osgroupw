@@ -1,26 +1,53 @@
+import { compileQuery, queryBuilder, sql } from '../queryBuilder';
 import { SqlQuery } from '../types';
 
 export default (): (SqlQuery|string)[] => {
 	return [
-		'ALTER TABLE `notes` ADD COLUMN `deleted_time` INT NOT NULL DEFAULT 0',
-		'ALTER TABLE `folders` ADD COLUMN `deleted_time` INT NOT NULL DEFAULT 0',
-		'DROP VIEW tags_with_note_count',
-		`
-			CREATE VIEW tags_with_note_count AS 
-			SELECT
-				tags.id as id,
-				tags.title as title,
-				tags.created_time as created_time,
-				tags.updated_time as updated_time,
-				COUNT(notes.id) as note_count, 
-				SUM(CASE WHEN notes.todo_completed > 0 THEN 1 ELSE 0 END) AS todo_completed_count
-			FROM tags 
-				LEFT JOIN note_tags nt on nt.tag_id = tags.id 
-				LEFT JOIN notes on notes.id = nt.note_id 
-			WHERE
-				notes.id IS NOT NULL
-				AND notes.deleted_time = 0
-			GROUP BY tags.id
-		`,
+		compileQuery(
+			queryBuilder.schema
+				.alterTable('notes')
+				.addColumn('deleted_time', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('0'))),
+		),
+		compileQuery(
+			queryBuilder.schema
+				.alterTable('folders')
+				.addColumn('deleted_time', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('0'))),
+		),
+		compileQuery(queryBuilder.schema.dropView('tags_with_note_count')).sql,
+		compileQuery(
+			queryBuilder.schema.createView('tags_with_note_count').as(
+				queryBuilder
+					.selectFrom('tags')
+					.leftJoin('note_tags as nt', (join) =>
+						join.on((eb) => eb(sql.ref('nt.tag_id'), '=', sql.ref('tags.id'))),
+					)
+					.leftJoin('notes', (join) => join.on((eb) => eb(sql.ref('notes.id'), '=', sql.ref('nt.note_id'))))
+					.select([
+						sql.ref('tags.id').as('id'),
+						sql.ref('tags.title').as('title'),
+						sql.ref('tags.created_time').as('created_time'),
+						sql.ref('tags.updated_time').as('updated_time'),
+						queryBuilder.fn('count', [sql.ref('notes.id')]).as('note_count'),
+						queryBuilder
+							.fn('sum', [
+								queryBuilder
+									.case()
+									.when(sql.ref('notes.todo_completed'), '>', sql.val(0))
+									// eslint-disable-next-line promise/prefer-await-to-then -- Kysely CASE expression, not a Promise
+									.then(sql.val(1))
+									.else(sql.val(0))
+									.end(),
+							])
+							.as('todo_completed_count'),
+					])
+					.where((eb) =>
+						eb.and([
+							eb(sql.ref('notes.id'), 'is not', sql.val(null)),
+							eb(sql.ref('notes.deleted_time'), '=', sql.val(0)),
+						]),
+					)
+					.groupBy(['tags.id']),
+			),
+		),
 	];
 };

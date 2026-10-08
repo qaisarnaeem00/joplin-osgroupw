@@ -1,5 +1,5 @@
 import JoplinDatabase from '../../JoplinDatabase';
-import paginationToSql from './paginationToSql';
+import { selectQuery, rawQuery, sql } from '../../services/database/queryBuilder';
 import { Pagination, PaginationOrder } from './types';
 
 export interface ModelFeedPage {
@@ -19,7 +19,7 @@ export interface WhereQuery {
 export default async function(db: JoplinDatabase, tableName: string, pagination: Pagination, whereQuery: WhereQuery = null, fields: string[] = null): Promise<ModelFeedPage> {
 	fields = fields ? fields.slice() : ['id'];
 
-	const where = whereQuery && whereQuery.sql ? [whereQuery.sql] : [];
+
 	const sqlParams = whereQuery && whereQuery.params ? whereQuery.params.slice() : [];
 
 	if (!pagination.order.length) throw new Error('Pagination order must be provided');
@@ -38,19 +38,14 @@ export default async function(db: JoplinDatabase, tableName: string, pagination:
 		};
 	}
 
-	const orderBySql = paginationToSql(pagination);
-	const fieldsSql = fields.length ? db.escapeFields(fields) : '*';
-	const offset = (pagination.page - 1) * pagination.limit;
-
-	const sql = `
-		SELECT ${fieldsSql} FROM \`${tableName}\`
-		${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-		ORDER BY ${orderBySql}
-		LIMIT ${pagination.limit}
-		OFFSET ${offset}
-	`;
-
-	const rows = await db.selectAll(sql, sqlParams);
+	let query = selectQuery(tableName, fields.length ? fields : '*');
+	if (whereQuery?.sql) query = query.where(rawQuery<boolean>(whereQuery.sql, sqlParams));
+	for (const order of pagination.order) {
+		const field = order.caseInsensitive || pagination.caseInsensitive ? sql`${sql.ref(order.by)} COLLATE NOCASE` : sql.ref(order.by);
+		query = query.orderBy(field, order.dir.toLowerCase() as 'asc' | 'desc');
+	}
+	query = query.limit(pagination.limit).offset((pagination.page - 1) * pagination.limit);
+	const rows = await db.selectAll(query);
 
 	return {
 		items: rows,

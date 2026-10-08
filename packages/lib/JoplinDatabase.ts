@@ -1,3 +1,4 @@
+import { compileQuery, queryBuilder, sql } from './services/database/queryBuilder';
 import Resource from './models/Resource';
 import shim from './shim';
 import Database, { Row } from './database';
@@ -8,119 +9,131 @@ import migrations from './services/database/migrations';
 
 const { sprintf } = require('sprintf-js');
 
-const structureSql = `
-CREATE TABLE folders (
-	id TEXT PRIMARY KEY,
-	title TEXT NOT NULL DEFAULT "",
-	created_time INT NOT NULL,
-	updated_time INT NOT NULL
-);
-
-CREATE INDEX folders_title ON folders (title);
-CREATE INDEX folders_updated_time ON folders (updated_time);
-
-CREATE TABLE notes (
-	id TEXT PRIMARY KEY,
-	parent_id TEXT NOT NULL DEFAULT "",
-	title TEXT NOT NULL DEFAULT "",
-	body TEXT NOT NULL DEFAULT "",
-	created_time INT NOT NULL,
-	updated_time INT NOT NULL,
-	is_conflict INT NOT NULL DEFAULT 0,
-	latitude NUMERIC NOT NULL DEFAULT 0,
-	longitude NUMERIC NOT NULL DEFAULT 0,
-	altitude NUMERIC NOT NULL DEFAULT 0,
-	author TEXT NOT NULL DEFAULT "",
-	source_url TEXT NOT NULL DEFAULT "",
-	is_todo INT NOT NULL DEFAULT 0,
-	todo_due INT NOT NULL DEFAULT 0,
-	todo_completed INT NOT NULL DEFAULT 0,
-	source TEXT NOT NULL DEFAULT "",
-	source_application TEXT NOT NULL DEFAULT "",
-	application_data TEXT NOT NULL DEFAULT "",
-	\`order\` INT NOT NULL DEFAULT 0
-);
-
-CREATE INDEX notes_title ON notes (title);
-CREATE INDEX notes_updated_time ON notes (updated_time);
-CREATE INDEX notes_is_conflict ON notes (is_conflict);
-CREATE INDEX notes_is_todo ON notes (is_todo);
-CREATE INDEX notes_order ON notes (\`order\`);
-
-CREATE TABLE tags (
-	id TEXT PRIMARY KEY,
-	title TEXT NOT NULL DEFAULT "",
-	created_time INT NOT NULL,
-	updated_time INT NOT NULL
-);
-
-CREATE INDEX tags_title ON tags (title);
-CREATE INDEX tags_updated_time ON tags (updated_time);
-
-CREATE TABLE note_tags (
-	id TEXT PRIMARY KEY,
-	note_id TEXT NOT NULL,
-	tag_id TEXT NOT NULL,
-	created_time INT NOT NULL,
-	updated_time INT NOT NULL
-);
-
-CREATE INDEX note_tags_note_id ON note_tags (note_id);
-CREATE INDEX note_tags_tag_id ON note_tags (tag_id);
-CREATE INDEX note_tags_updated_time ON note_tags (updated_time);
-
-CREATE TABLE resources (
-	id TEXT PRIMARY KEY,
-	title TEXT NOT NULL DEFAULT "",
-	mime TEXT NOT NULL,
-	filename TEXT NOT NULL DEFAULT "",
-	created_time INT NOT NULL,
-	updated_time INT NOT NULL
-);
-
-CREATE INDEX resources_title ON resources (title);
-CREATE INDEX resources_updated_time ON resources (updated_time);
-
-CREATE TABLE settings (
-	\`key\` TEXT PRIMARY KEY,
-	\`value\` TEXT,
-	\`type\` INT NOT NULL
-);
-
-CREATE TABLE table_fields (
-	id INTEGER PRIMARY KEY,
-	table_name TEXT NOT NULL,
-	field_name TEXT NOT NULL,
-	field_type INT NOT NULL,
-	field_default TEXT
-);
-
-CREATE TABLE sync_items (
-	id INTEGER PRIMARY KEY,
-	sync_target INT NOT NULL,
-	sync_time INT NOT NULL DEFAULT 0,
-	item_type INT NOT NULL,
-	item_id TEXT NOT NULL
-);
-
-CREATE INDEX sync_items_sync_time ON sync_items (sync_time);
-CREATE INDEX sync_items_sync_target ON sync_items (sync_target);
-CREATE INDEX sync_items_item_type ON sync_items (item_type);
-CREATE INDEX sync_items_item_id ON sync_items (item_id);
-
-CREATE TABLE deleted_items (
-	id INTEGER PRIMARY KEY,
-	item_type INT NOT NULL,
-	item_id TEXT NOT NULL,
-	deleted_time INT NOT NULL
-);
-
-CREATE TABLE version (
-	version INT NOT NULL
-);
-
-INSERT INTO version (version) VALUES (1);
-`;
+const structureQueries = [
+	compileQuery(
+		queryBuilder.schema
+			.createTable('folders')
+			.addColumn('id', sql.raw('TEXT'), (column) => column.primaryKey())
+			.addColumn('title', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+			.addColumn('created_time', sql.raw('INT'), (column) => column.notNull())
+			.addColumn('updated_time', sql.raw('INT'), (column) => column.notNull()),
+	),
+	compileQuery(queryBuilder.schema.createIndex('folders_title').on('folders').columns(['title'])),
+	compileQuery(queryBuilder.schema.createIndex('folders_updated_time').on('folders').columns(['updated_time'])),
+	compileQuery(
+		queryBuilder.schema
+			.createTable('notes')
+			.addColumn('id', sql.raw('TEXT'), (column) => column.primaryKey())
+			.addColumn('parent_id', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+			.addColumn('title', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+			.addColumn('body', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+			.addColumn('created_time', sql.raw('INT'), (column) => column.notNull())
+			.addColumn('updated_time', sql.raw('INT'), (column) => column.notNull())
+			.addColumn('is_conflict', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('0')))
+			.addColumn('latitude', sql.raw('NUMERIC'), (column) => column.notNull().defaultTo(sql.raw('0')))
+			.addColumn('longitude', sql.raw('NUMERIC'), (column) => column.notNull().defaultTo(sql.raw('0')))
+			.addColumn('altitude', sql.raw('NUMERIC'), (column) => column.notNull().defaultTo(sql.raw('0')))
+			.addColumn('author', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+			.addColumn('source_url', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+			.addColumn('is_todo', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('0')))
+			.addColumn('todo_due', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('0')))
+			.addColumn('todo_completed', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('0')))
+			.addColumn('source', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+			.addColumn('source_application', sql.raw('TEXT'), (column) =>
+				column.notNull().defaultTo(sql.raw('""')),
+			)
+			.addColumn('application_data', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+			.addColumn('order', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('0'))),
+	),
+	compileQuery(queryBuilder.schema.createIndex('notes_title').on('notes').columns(['title'])),
+	compileQuery(queryBuilder.schema.createIndex('notes_updated_time').on('notes').columns(['updated_time'])),
+	compileQuery(queryBuilder.schema.createIndex('notes_is_conflict').on('notes').columns(['is_conflict'])),
+	compileQuery(queryBuilder.schema.createIndex('notes_is_todo').on('notes').columns(['is_todo'])),
+	compileQuery(queryBuilder.schema.createIndex('notes_order').on('notes').columns(['order'])),
+	compileQuery(
+		queryBuilder.schema
+			.createTable('tags')
+			.addColumn('id', sql.raw('TEXT'), (column) => column.primaryKey())
+			.addColumn('title', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+			.addColumn('created_time', sql.raw('INT'), (column) => column.notNull())
+			.addColumn('updated_time', sql.raw('INT'), (column) => column.notNull()),
+	),
+	compileQuery(queryBuilder.schema.createIndex('tags_title').on('tags').columns(['title'])),
+	compileQuery(queryBuilder.schema.createIndex('tags_updated_time').on('tags').columns(['updated_time'])),
+	compileQuery(
+		queryBuilder.schema
+			.createTable('note_tags')
+			.addColumn('id', sql.raw('TEXT'), (column) => column.primaryKey())
+			.addColumn('note_id', sql.raw('TEXT'), (column) => column.notNull())
+			.addColumn('tag_id', sql.raw('TEXT'), (column) => column.notNull())
+			.addColumn('created_time', sql.raw('INT'), (column) => column.notNull())
+			.addColumn('updated_time', sql.raw('INT'), (column) => column.notNull()),
+	),
+	compileQuery(queryBuilder.schema.createIndex('note_tags_note_id').on('note_tags').columns(['note_id'])),
+	compileQuery(queryBuilder.schema.createIndex('note_tags_tag_id').on('note_tags').columns(['tag_id'])),
+	compileQuery(
+		queryBuilder.schema.createIndex('note_tags_updated_time').on('note_tags').columns(['updated_time']),
+	),
+	compileQuery(
+		queryBuilder.schema
+			.createTable('resources')
+			.addColumn('id', sql.raw('TEXT'), (column) => column.primaryKey())
+			.addColumn('title', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+			.addColumn('mime', sql.raw('TEXT'), (column) => column.notNull())
+			.addColumn('filename', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+			.addColumn('created_time', sql.raw('INT'), (column) => column.notNull())
+			.addColumn('updated_time', sql.raw('INT'), (column) => column.notNull()),
+	),
+	compileQuery(queryBuilder.schema.createIndex('resources_title').on('resources').columns(['title'])),
+	compileQuery(
+		queryBuilder.schema.createIndex('resources_updated_time').on('resources').columns(['updated_time']),
+	),
+	compileQuery(
+		queryBuilder.schema
+			.createTable('settings')
+			.addColumn('key', sql.raw('TEXT'), (column) => column.primaryKey())
+			.addColumn('value', sql.raw('TEXT'))
+			.addColumn('type', sql.raw('INT'), (column) => column.notNull()),
+	),
+	compileQuery(
+		queryBuilder.schema
+			.createTable('table_fields')
+			.addColumn('id', sql.raw('INTEGER'), (column) => column.primaryKey())
+			.addColumn('table_name', sql.raw('TEXT'), (column) => column.notNull())
+			.addColumn('field_name', sql.raw('TEXT'), (column) => column.notNull())
+			.addColumn('field_type', sql.raw('INT'), (column) => column.notNull())
+			.addColumn('field_default', sql.raw('TEXT')),
+	),
+	compileQuery(
+		queryBuilder.schema
+			.createTable('sync_items')
+			.addColumn('id', sql.raw('INTEGER'), (column) => column.primaryKey())
+			.addColumn('sync_target', sql.raw('INT'), (column) => column.notNull())
+			.addColumn('sync_time', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('0')))
+			.addColumn('item_type', sql.raw('INT'), (column) => column.notNull())
+			.addColumn('item_id', sql.raw('TEXT'), (column) => column.notNull()),
+	),
+	compileQuery(queryBuilder.schema.createIndex('sync_items_sync_time').on('sync_items').columns(['sync_time'])),
+	compileQuery(
+		queryBuilder.schema.createIndex('sync_items_sync_target').on('sync_items').columns(['sync_target']),
+	),
+	compileQuery(queryBuilder.schema.createIndex('sync_items_item_type').on('sync_items').columns(['item_type'])),
+	compileQuery(queryBuilder.schema.createIndex('sync_items_item_id').on('sync_items').columns(['item_id'])),
+	compileQuery(
+		queryBuilder.schema
+			.createTable('deleted_items')
+			.addColumn('id', sql.raw('INTEGER'), (column) => column.primaryKey())
+			.addColumn('item_type', sql.raw('INT'), (column) => column.notNull())
+			.addColumn('item_id', sql.raw('TEXT'), (column) => column.notNull())
+			.addColumn('deleted_time', sql.raw('INT'), (column) => column.notNull()),
+	),
+	compileQuery(
+		queryBuilder.schema
+			.createTable('version')
+			.addColumn('version', sql.raw('INT'), (column) => column.notNull()),
+	),
+	compileQuery(queryBuilder.insertInto('version').values([{ 'version': sql.val(1) }])),
+];
 
 export interface TableField {
 	name: string;
@@ -233,21 +246,47 @@ export default class JoplinDatabase extends Database {
 
 		const queries = [];
 		for (const n of tableNames) {
-			queries.push(`DELETE FROM ${n}`);
-			queries.push(`DELETE FROM sqlite_sequence WHERE name="${n}"`); // Reset autoincremented IDs
+			queries.push(compileQuery(queryBuilder.deleteFrom(n)));
+			queries.push(compileQuery(queryBuilder.deleteFrom('sqlite_sequence').where(eb => eb(sql.ref('name'), '=', sql.val(n))))); // Reset autoincremented IDs
 		}
 
-		queries.push('DELETE FROM settings WHERE key="sync.1.context"');
-		queries.push('DELETE FROM settings WHERE key="sync.2.context"');
-		queries.push('DELETE FROM settings WHERE key="sync.3.context"');
-		queries.push('DELETE FROM settings WHERE key="sync.4.context"');
-		queries.push('DELETE FROM settings WHERE key="sync.5.context"');
-		queries.push('DELETE FROM settings WHERE key="sync.6.context"');
-		queries.push('DELETE FROM settings WHERE key="sync.7.context"');
+		queries.push(compileQuery(
+			queryBuilder.deleteFrom('settings').where((eb) => eb(sql.ref('key'), '=', sql.val('sync.1.context'))),
+		));
+		queries.push(compileQuery(
+			queryBuilder.deleteFrom('settings').where((eb) => eb(sql.ref('key'), '=', sql.val('sync.2.context'))),
+		));
+		queries.push(compileQuery(
+			queryBuilder.deleteFrom('settings').where((eb) => eb(sql.ref('key'), '=', sql.val('sync.3.context'))),
+		));
+		queries.push(compileQuery(
+			queryBuilder.deleteFrom('settings').where((eb) => eb(sql.ref('key'), '=', sql.val('sync.4.context'))),
+		));
+		queries.push(compileQuery(
+			queryBuilder.deleteFrom('settings').where((eb) => eb(sql.ref('key'), '=', sql.val('sync.5.context'))),
+		));
+		queries.push(compileQuery(
+			queryBuilder.deleteFrom('settings').where((eb) => eb(sql.ref('key'), '=', sql.val('sync.6.context'))),
+		));
+		queries.push(compileQuery(
+			queryBuilder.deleteFrom('settings').where((eb) => eb(sql.ref('key'), '=', sql.val('sync.7.context'))),
+		));
 
-		queries.push('DELETE FROM settings WHERE key="revisionService.lastProcessedChangeId"');
-		queries.push('DELETE FROM settings WHERE key="resourceService.lastProcessedChangeId"');
-		queries.push('DELETE FROM settings WHERE key="searchEngine.lastProcessedChangeId"');
+		queries.push(compileQuery(
+			queryBuilder
+				.deleteFrom('settings')
+				.where((eb) => eb(sql.ref('key'), '=', sql.val('revisionService.lastProcessedChangeId'))),
+		));
+		queries.push(compileQuery(
+			queryBuilder
+				.deleteFrom('settings')
+				.where((eb) => eb(sql.ref('key'), '=', sql.val('resourceService.lastProcessedChangeId'))),
+		));
+		queries.push(compileQuery(
+			queryBuilder
+				.deleteFrom('settings')
+				.where((eb) => eb(sql.ref('key'), '=', sql.val('searchEngine.lastProcessedChangeId'))),
+		));
 
 		await this.transactionExecBatch(queries);
 	}
@@ -329,7 +368,7 @@ export default class JoplinDatabase extends Database {
 	public async refreshTableFields(newVersion: number) {
 		this.logger().info('Initializing tables...');
 		const queries: SqlQuery[] = [];
-		queries.push(this.wrapQuery('DELETE FROM table_fields'));
+		queries.push(this.wrapQuery(compileQuery(queryBuilder.deleteFrom('table_fields'))));
 
 		const countFieldsNotesFts = await this.countFields('notes_fts');
 		const countFieldsItemsFts = await this.countFields('items_fts');
@@ -341,7 +380,12 @@ export default class JoplinDatabase extends Database {
 			name: string;
 		}
 
-		const tableRows: TableRow[] = await this.selectAll('SELECT name FROM sqlite_master WHERE type=\'table\'');
+		const tableRows: TableRow[] = await this.selectAll(compileQuery(
+			queryBuilder
+				.selectFrom('sqlite_master')
+				.select(['name'])
+				.where((eb) => eb(sql.ref('type'), '=', sql.val('table'))),
+		));
 
 		for (let i = 0; i < tableRows.length; i++) {
 			let pragmas: Row[] = [];
@@ -379,7 +423,7 @@ export default class JoplinDatabase extends Database {
 			}
 		}
 
-		queries.push({ sql: 'UPDATE version SET table_fields_version = ?', params: [newVersion] });
+		queries.push(compileQuery(queryBuilder.updateTable('version').set({ 'table_fields_version': sql.val(newVersion) })));
 		await this.transactionExecBatch(queries);
 	}
 
@@ -427,23 +471,25 @@ export default class JoplinDatabase extends Database {
 			let queries: (SqlQuery|string)[] = [];
 
 			if (targetVersion === 1) {
-				queries = this.wrapQueries(sqlStringToLines(structureSql));
+				queries = [...structureQueries];
 			}
 
 			if (targetVersion === 2) {
-				const newTableSql = `
-					CREATE TABLE deleted_items (
-						id INTEGER PRIMARY KEY,
-						item_type INT NOT NULL,
-						item_id TEXT NOT NULL,
-						deleted_time INT NOT NULL,
-						sync_target INT NOT NULL
-					);
-				`;
+				const newTableSql = compileQuery(
+					queryBuilder.schema
+						.createTable('deleted_items')
+						.addColumn('id', sql.raw('INTEGER'), (column) => column.primaryKey())
+						.addColumn('item_type', sql.raw('INT'), (column) => column.notNull())
+						.addColumn('item_id', sql.raw('TEXT'), (column) => column.notNull())
+						.addColumn('deleted_time', sql.raw('INT'), (column) => column.notNull())
+						.addColumn('sync_target', sql.raw('INT'), (column) => column.notNull()),
+				);
 
-				queries.push({ sql: 'DROP TABLE deleted_items' });
-				queries.push({ sql: sqlStringToLines(newTableSql)[0] });
-				queries.push({ sql: 'CREATE INDEX deleted_items_sync_target ON deleted_items (sync_target)' });
+				queries.push({ sql: compileQuery(queryBuilder.schema.dropTable('deleted_items')).sql });
+				queries.push(newTableSql);
+				queries.push({ sql: compileQuery(
+					queryBuilder.schema.createIndex('deleted_items_sync_target').on('deleted_items').columns(['sync_target']),
+				).sql });
 			}
 
 			if (targetVersion === 3) {
@@ -451,92 +497,179 @@ export default class JoplinDatabase extends Database {
 			}
 
 			if (targetVersion === 4) {
-				queries.push('INSERT INTO settings (`key`, `value`) VALUES (\'sync.3.context\', (SELECT `value` FROM settings WHERE `key` = \'sync.context\'))');
-				queries.push('DELETE FROM settings WHERE `key` = \'sync.context\'');
+				queries.push(compileQuery(
+					queryBuilder.insertInto('settings').values([
+						{
+							key: sql.val('sync.3.context'),
+							value: queryBuilder
+								.selectFrom('settings')
+								.select(['value'])
+								.where((eb) => eb(sql.ref('key'), '=', sql.val('sync.context'))),
+						},
+					]),
+				));
+				queries.push(compileQuery(
+					queryBuilder.deleteFrom('settings').where((eb) => eb(sql.ref('key'), '=', sql.val('sync.context'))),
+				));
 			}
 
 			if (targetVersion === 5) {
 				const tableNames = ['notes', 'folders', 'tags', 'note_tags', 'resources'];
 				for (let i = 0; i < tableNames.length; i++) {
 					const n = tableNames[i];
-					queries.push(`ALTER TABLE ${n} ADD COLUMN user_created_time INT NOT NULL DEFAULT 0`);
-					queries.push(`ALTER TABLE ${n} ADD COLUMN user_updated_time INT NOT NULL DEFAULT 0`);
-					queries.push(`UPDATE ${n} SET user_created_time = created_time`);
-					queries.push(`UPDATE ${n} SET user_updated_time = updated_time`);
-					queries.push(`CREATE INDEX ${n}_user_updated_time ON ${n} (user_updated_time)`);
+					queries.push(compileQuery(
+						queryBuilder.schema
+							.alterTable(n)
+							.addColumn('user_created_time', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('0'))),
+					));
+					queries.push(compileQuery(
+						queryBuilder.schema
+							.alterTable(n)
+							.addColumn('user_updated_time', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('0'))),
+					));
+					queries.push(compileQuery(queryBuilder.updateTable(n).set({ 'user_created_time': sql.ref('created_time') })));
+					queries.push(compileQuery(queryBuilder.updateTable(n).set({ 'user_updated_time': sql.ref('updated_time') })));
+					queries.push(compileQuery(queryBuilder.schema.createIndex(`${n}_user_updated_time`).on(n).columns(['user_updated_time'])));
 				}
 			}
 
 			if (targetVersion === 6) {
-				queries.push('CREATE TABLE alarms (id INTEGER PRIMARY KEY AUTOINCREMENT, note_id TEXT NOT NULL, trigger_time INT NOT NULL)');
-				queries.push('CREATE INDEX alarm_note_id ON alarms (note_id)');
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.createTable('alarms')
+						.addColumn('id', sql.raw('INTEGER'), (column) => column.primaryKey().autoIncrement())
+						.addColumn('note_id', sql.raw('TEXT'), (column) => column.notNull())
+						.addColumn('trigger_time', sql.raw('INT'), (column) => column.notNull()),
+				));
+				queries.push(compileQuery(queryBuilder.schema.createIndex('alarm_note_id').on('alarms').columns(['note_id'])));
 			}
 
 			if (targetVersion === 7) {
-				queries.push('ALTER TABLE resources ADD COLUMN file_extension TEXT NOT NULL DEFAULT ""');
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('resources')
+						.addColumn('file_extension', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""'))),
+				));
 			}
 
 			if (targetVersion === 8) {
-				queries.push('ALTER TABLE sync_items ADD COLUMN sync_disabled INT NOT NULL DEFAULT "0"');
-				queries.push('ALTER TABLE sync_items ADD COLUMN sync_disabled_reason TEXT NOT NULL DEFAULT ""');
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('sync_items')
+						.addColumn('sync_disabled', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('"0"'))),
+				));
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('sync_items')
+						.addColumn('sync_disabled_reason', sql.raw('TEXT'), (column) =>
+							column.notNull().defaultTo(sql.raw('""')),
+						),
+				));
 			}
 
 			if (targetVersion === 9) {
-				const newTableSql = `
-					CREATE TABLE master_keys (
-						id TEXT PRIMARY KEY,
-						created_time INT NOT NULL,
-						updated_time INT NOT NULL,
-						source_application TEXT NOT NULL,
-						encryption_method INT NOT NULL,
-						checksum TEXT NOT NULL,
-						content TEXT NOT NULL
-					);
-				`;
-				queries.push(sqlStringToLines(newTableSql)[0]);
+				const newTableSql = compileQuery(
+					queryBuilder.schema
+						.createTable('master_keys')
+						.addColumn('id', sql.raw('TEXT'), (column) => column.primaryKey())
+						.addColumn('created_time', sql.raw('INT'), (column) => column.notNull())
+						.addColumn('updated_time', sql.raw('INT'), (column) => column.notNull())
+						.addColumn('source_application', sql.raw('TEXT'), (column) => column.notNull())
+						.addColumn('encryption_method', sql.raw('INT'), (column) => column.notNull())
+						.addColumn('checksum', sql.raw('TEXT'), (column) => column.notNull())
+						.addColumn('content', sql.raw('TEXT'), (column) => column.notNull()),
+				);
+				queries.push(newTableSql);
 				const tableNames = ['notes', 'folders', 'tags', 'note_tags', 'resources'];
 				for (let i = 0; i < tableNames.length; i++) {
 					const n = tableNames[i];
-					queries.push(`ALTER TABLE ${n} ADD COLUMN encryption_cipher_text TEXT NOT NULL DEFAULT ""`);
-					queries.push(`ALTER TABLE ${n} ADD COLUMN encryption_applied INT NOT NULL DEFAULT 0`);
-					queries.push(`CREATE INDEX ${n}_encryption_applied ON ${n} (encryption_applied)`);
+					queries.push(compileQuery(
+						queryBuilder.schema
+							.alterTable(n)
+							.addColumn('encryption_cipher_text', sql.raw('TEXT'), (column) =>
+								column.notNull().defaultTo(sql.raw('""')),
+							),
+					));
+					queries.push(compileQuery(
+						queryBuilder.schema
+							.alterTable(n)
+							.addColumn('encryption_applied', sql.raw('INT'), (column) =>
+								column.notNull().defaultTo(sql.raw('0')),
+							),
+					));
+					queries.push(compileQuery(queryBuilder.schema.createIndex(`${n}_encryption_applied`).on(n).columns(['encryption_applied'])));
 				}
 
-				queries.push('ALTER TABLE sync_items ADD COLUMN force_sync INT NOT NULL DEFAULT 0');
-				queries.push('ALTER TABLE resources ADD COLUMN encryption_blob_encrypted INT NOT NULL DEFAULT 0');
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('sync_items')
+						.addColumn('force_sync', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('0'))),
+				));
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('resources')
+						.addColumn('encryption_blob_encrypted', sql.raw('INT'), (column) =>
+							column.notNull().defaultTo(sql.raw('0')),
+						),
+				));
 			}
 
 			const upgradeVersion10 = () => {
-				const itemChangesTable = `
-					CREATE TABLE item_changes (
-						id INTEGER PRIMARY KEY AUTOINCREMENT,
-						item_type INT NOT NULL,
-						item_id TEXT NOT NULL,
-						type INT NOT NULL,
-						created_time INT NOT NULL
-					);
-				`;
+				const itemChangesTable = compileQuery(
+					queryBuilder.schema
+						.createTable('item_changes')
+						.addColumn('id', sql.raw('INTEGER'), (column) => column.primaryKey().autoIncrement())
+						.addColumn('item_type', sql.raw('INT'), (column) => column.notNull())
+						.addColumn('item_id', sql.raw('TEXT'), (column) => column.notNull())
+						.addColumn('type', sql.raw('INT'), (column) => column.notNull())
+						.addColumn('created_time', sql.raw('INT'), (column) => column.notNull()),
+				);
 
-				const noteResourcesTable = `
-					CREATE TABLE note_resources (
-						id INTEGER PRIMARY KEY,
-						note_id TEXT NOT NULL,
-						resource_id TEXT NOT NULL,
-						is_associated INT NOT NULL,
-						last_seen_time INT NOT NULL
-					);
-				`;
+				const noteResourcesTable = compileQuery(
+					queryBuilder.schema
+						.createTable('note_resources')
+						.addColumn('id', sql.raw('INTEGER'), (column) => column.primaryKey())
+						.addColumn('note_id', sql.raw('TEXT'), (column) => column.notNull())
+						.addColumn('resource_id', sql.raw('TEXT'), (column) => column.notNull())
+						.addColumn('is_associated', sql.raw('INT'), (column) => column.notNull())
+						.addColumn('last_seen_time', sql.raw('INT'), (column) => column.notNull()),
+				);
 
-				queries.push(sqlStringToLines(itemChangesTable)[0]);
-				queries.push('CREATE INDEX item_changes_item_id ON item_changes (item_id)');
-				queries.push('CREATE INDEX item_changes_created_time ON item_changes (created_time)');
-				queries.push('CREATE INDEX item_changes_item_type ON item_changes (item_type)');
+				queries.push(itemChangesTable);
+				queries.push(compileQuery(queryBuilder.schema.createIndex('item_changes_item_id').on('item_changes').columns(['item_id'])));
+				queries.push(compileQuery(
+					queryBuilder.schema.createIndex('item_changes_created_time').on('item_changes').columns(['created_time']),
+				));
+				queries.push(compileQuery(
+					queryBuilder.schema.createIndex('item_changes_item_type').on('item_changes').columns(['item_type']),
+				));
 
-				queries.push(sqlStringToLines(noteResourcesTable)[0]);
-				queries.push('CREATE INDEX note_resources_note_id ON note_resources (note_id)');
-				queries.push('CREATE INDEX note_resources_resource_id ON note_resources (resource_id)');
+				queries.push(noteResourcesTable);
+				queries.push(compileQuery(
+					queryBuilder.schema.createIndex('note_resources_note_id').on('note_resources').columns(['note_id']),
+				));
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.createIndex('note_resources_resource_id')
+						.on('note_resources')
+						.columns(['resource_id']),
+				));
 
-				queries.push({ sql: 'INSERT INTO item_changes (item_type, item_id, type, created_time) SELECT 1, id, 1, ? FROM notes', params: [Date.now()] });
+				queries.push(compileQuery(
+					queryBuilder
+						.insertInto('item_changes')
+						.columns(['item_type', 'item_id', 'type', 'created_time'])
+						.expression(
+							queryBuilder
+								.selectFrom('notes')
+								.select([
+									sql.val(1).as('item_type'),
+									'id',
+									sql.val(1).as('type'),
+									sql.val(Date.now()).as('created_time'),
+								]),
+						),
+				));
 			};
 
 			if (targetVersion === 10) {
@@ -547,37 +680,69 @@ export default class JoplinDatabase extends Database {
 				// This trick was needed because Electron Builder incorrectly released a dev branch containing v10 as it was
 				// still being developed, and the db schema was not final at that time. So this v11 was created to
 				// make sure any invalid db schema that was accidentally created was deleted and recreated.
-				queries.push('DROP TABLE item_changes');
-				queries.push('DROP TABLE note_resources');
+				queries.push(compileQuery(queryBuilder.schema.dropTable('item_changes')).sql);
+				queries.push(compileQuery(queryBuilder.schema.dropTable('note_resources')).sql);
 				upgradeVersion10();
 			}
 
 			if (targetVersion === 12) {
-				queries.push('ALTER TABLE folders ADD COLUMN parent_id TEXT NOT NULL DEFAULT ""');
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('folders')
+						.addColumn('parent_id', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""'))),
+				));
 			}
 
 			if (targetVersion === 13) {
-				queries.push('ALTER TABLE resources ADD COLUMN fetch_status INT NOT NULL DEFAULT "2"');
-				queries.push('ALTER TABLE resources ADD COLUMN fetch_error TEXT NOT NULL DEFAULT ""');
-				queries.push({ sql: 'UPDATE resources SET fetch_status = ?', params: [Resource.FETCH_STATUS_DONE] });
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('resources')
+						.addColumn('fetch_status', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('"2"'))),
+				));
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('resources')
+						.addColumn('fetch_error', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""'))),
+				));
+				queries.push(compileQuery(
+					queryBuilder.updateTable('resources').set({ fetch_status: sql.val(Resource.FETCH_STATUS_DONE) }),
+				));
 			}
 
 			if (targetVersion === 14) {
-				const resourceLocalStates = `
-					CREATE TABLE resource_local_states (
-						id INTEGER PRIMARY KEY,
-						resource_id TEXT NOT NULL,
-						fetch_status INT NOT NULL DEFAULT "2",
-						fetch_error TEXT NOT NULL DEFAULT ""
-					);
-				`;
+				const resourceLocalStates = compileQuery(
+					queryBuilder.schema
+						.createTable('resource_local_states')
+						.addColumn('id', sql.raw('INTEGER'), (column) => column.primaryKey())
+						.addColumn('resource_id', sql.raw('TEXT'), (column) => column.notNull())
+						.addColumn('fetch_status', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('"2"')))
+						.addColumn('fetch_error', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""'))),
+				);
 
-				queries.push(sqlStringToLines(resourceLocalStates)[0]);
+				queries.push(resourceLocalStates);
 
-				queries.push('INSERT INTO resource_local_states SELECT null, id, fetch_status, fetch_error FROM resources');
+				queries.push(compileQuery(
+					queryBuilder
+						.insertInto('resource_local_states')
+						.expression(
+							queryBuilder
+								.selectFrom('resources')
+								.select([sql.val(null).as('id'), 'id as resource_id', 'fetch_status', 'fetch_error']),
+						),
+				));
 
-				queries.push('CREATE INDEX resource_local_states_resource_id ON resource_local_states (resource_id)');
-				queries.push('CREATE INDEX resource_local_states_resource_fetch_status ON resource_local_states (fetch_status)');
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.createIndex('resource_local_states_resource_id')
+						.on('resource_local_states')
+						.columns(['resource_id']),
+				));
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.createIndex('resource_local_states_resource_fetch_status')
+						.on('resource_local_states')
+						.columns(['fetch_status']),
+				));
 
 				queries = queries.concat(
 					this.alterColumnQueries('resources', {
@@ -599,7 +764,22 @@ export default class JoplinDatabase extends Database {
 
 			if (targetVersion === 15) {
 				queries.push('CREATE VIRTUAL TABLE notes_fts USING fts4(content="notes", notindexed="id", id, title, body)');
-				queries.push('INSERT INTO notes_fts(docid, id, title, body) SELECT rowid, id, title, body FROM notes WHERE is_conflict = 0 AND encryption_applied = 0');
+				queries.push(compileQuery(
+					queryBuilder
+						.insertInto('notes_fts')
+						.columns(['docid', 'id', 'title', 'body'])
+						.expression(
+							queryBuilder
+								.selectFrom('notes')
+								.select(['rowid', 'id', 'title', 'body'])
+								.where((eb) =>
+									eb.and([
+										eb(sql.ref('is_conflict'), '=', sql.val(0)),
+										eb(sql.ref('encryption_applied'), '=', sql.val(0)),
+									]),
+								),
+						),
+				));
 
 				// Keep the content tables (notes) and the FTS table (notes_fts) in sync.
 				// More info at https://www.sqlite.org/fts3.html#_external_content_fts4_tables_
@@ -622,23 +802,23 @@ export default class JoplinDatabase extends Database {
 			}
 
 			if (targetVersion === 18) {
-				const notesNormalized = `
-					CREATE TABLE notes_normalized (
-						id TEXT NOT NULL,
-						title TEXT NOT NULL DEFAULT "",
-						body TEXT NOT NULL DEFAULT "" 
-					);
-				`;
+				const notesNormalized = compileQuery(
+					queryBuilder.schema
+						.createTable('notes_normalized')
+						.addColumn('id', sql.raw('TEXT'), (column) => column.notNull())
+						.addColumn('title', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+						.addColumn('body', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""'))),
+				);
 
-				queries.push(sqlStringToLines(notesNormalized)[0]);
+				queries.push(notesNormalized);
 
-				queries.push('CREATE INDEX notes_normalized_id ON notes_normalized (id)');
+				queries.push(compileQuery(queryBuilder.schema.createIndex('notes_normalized_id').on('notes_normalized').columns(['id'])));
 
 				queries.push('DROP TRIGGER IF EXISTS notes_fts_before_update');
 				queries.push('DROP TRIGGER IF EXISTS notes_fts_before_delete');
 				queries.push('DROP TRIGGER IF EXISTS notes_after_update');
 				queries.push('DROP TRIGGER IF EXISTS notes_after_insert');
-				queries.push('DROP TABLE IF EXISTS notes_fts');
+				queries.push(compileQuery(queryBuilder.schema.dropTable('notes_fts').ifExists()).sql);
 
 				queries.push('CREATE VIRTUAL TABLE notes_fts USING fts4(content="notes_normalized", notindexed="id", id, title, body)');
 
@@ -663,102 +843,159 @@ export default class JoplinDatabase extends Database {
 			}
 
 			if (targetVersion === 19) {
-				const newTableSql = `
-					CREATE TABLE revisions (
-						id TEXT PRIMARY KEY,
-						parent_id TEXT NOT NULL DEFAULT "",
-						item_type INT NOT NULL,
-						item_id TEXT NOT NULL,
-						item_updated_time INT NOT NULL,
-						title_diff TEXT NOT NULL DEFAULT "",
-						body_diff TEXT NOT NULL DEFAULT "",
-						metadata_diff TEXT NOT NULL DEFAULT "",
-						encryption_cipher_text TEXT NOT NULL DEFAULT "",
-						encryption_applied INT NOT NULL DEFAULT 0,
-						updated_time INT NOT NULL,
-						created_time INT NOT NULL
-					);
-				`;
-				queries.push(sqlStringToLines(newTableSql)[0]);
+				const newTableSql = compileQuery(
+					queryBuilder.schema
+						.createTable('revisions')
+						.addColumn('id', sql.raw('TEXT'), (column) => column.primaryKey())
+						.addColumn('parent_id', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+						.addColumn('item_type', sql.raw('INT'), (column) => column.notNull())
+						.addColumn('item_id', sql.raw('TEXT'), (column) => column.notNull())
+						.addColumn('item_updated_time', sql.raw('INT'), (column) => column.notNull())
+						.addColumn('title_diff', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+						.addColumn('body_diff', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+						.addColumn('metadata_diff', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+						.addColumn('encryption_cipher_text', sql.raw('TEXT'), (column) =>
+							column.notNull().defaultTo(sql.raw('""')),
+						)
+						.addColumn('encryption_applied', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('0')))
+						.addColumn('updated_time', sql.raw('INT'), (column) => column.notNull())
+						.addColumn('created_time', sql.raw('INT'), (column) => column.notNull()),
+				);
+				queries.push(newTableSql);
 
-				queries.push('CREATE INDEX revisions_parent_id ON revisions (parent_id)');
-				queries.push('CREATE INDEX revisions_item_type ON revisions (item_type)');
-				queries.push('CREATE INDEX revisions_item_id ON revisions (item_id)');
-				queries.push('CREATE INDEX revisions_item_updated_time ON revisions (item_updated_time)');
-				queries.push('CREATE INDEX revisions_updated_time ON revisions (updated_time)');
+				queries.push(compileQuery(queryBuilder.schema.createIndex('revisions_parent_id').on('revisions').columns(['parent_id'])));
+				queries.push(compileQuery(queryBuilder.schema.createIndex('revisions_item_type').on('revisions').columns(['item_type'])));
+				queries.push(compileQuery(queryBuilder.schema.createIndex('revisions_item_id').on('revisions').columns(['item_id'])));
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.createIndex('revisions_item_updated_time')
+						.on('revisions')
+						.columns(['item_updated_time']),
+				));
+				queries.push(compileQuery(
+					queryBuilder.schema.createIndex('revisions_updated_time').on('revisions').columns(['updated_time']),
+				));
 
-				queries.push('ALTER TABLE item_changes ADD COLUMN source INT NOT NULL DEFAULT 1');
-				queries.push('ALTER TABLE item_changes ADD COLUMN before_change_item TEXT NOT NULL DEFAULT ""');
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('item_changes')
+						.addColumn('source', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('1'))),
+				));
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('item_changes')
+						.addColumn('before_change_item', sql.raw('TEXT'), (column) =>
+							column.notNull().defaultTo(sql.raw('""')),
+						),
+				));
 			}
 
 			if (targetVersion === 20) {
-				const newTableSql = `
-					CREATE TABLE migrations (
-						id INTEGER PRIMARY KEY,
-						number INTEGER NOT NULL,
-						updated_time INT NOT NULL,
-						created_time INT NOT NULL
-					);
-				`;
-				queries.push(sqlStringToLines(newTableSql)[0]);
+				const newTableSql = compileQuery(
+					queryBuilder.schema
+						.createTable('migrations')
+						.addColumn('id', sql.raw('INTEGER'), (column) => column.primaryKey())
+						.addColumn('number', sql.raw('INTEGER'), (column) => column.notNull())
+						.addColumn('updated_time', sql.raw('INT'), (column) => column.notNull())
+						.addColumn('created_time', sql.raw('INT'), (column) => column.notNull()),
+				);
+				queries.push(newTableSql);
 
-				queries.push('ALTER TABLE resources ADD COLUMN `size` INT NOT NULL DEFAULT -1');
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('resources')
+						.addColumn('size', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('-1'))),
+				));
 				queries.push(addMigrationFile(20));
 			}
 
 			if (targetVersion === 21) {
-				queries.push('ALTER TABLE sync_items ADD COLUMN item_location INT NOT NULL DEFAULT 1');
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('sync_items')
+						.addColumn('item_location', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('1'))),
+				));
 			}
 
 			if (targetVersion === 22) {
-				const newTableSql = `
-					CREATE TABLE resources_to_download (
-						id INTEGER PRIMARY KEY,
-						resource_id TEXT NOT NULL,
-						updated_time INT NOT NULL,
-						created_time INT NOT NULL
-					);
-				`;
-				queries.push(sqlStringToLines(newTableSql)[0]);
+				const newTableSql = compileQuery(
+					queryBuilder.schema
+						.createTable('resources_to_download')
+						.addColumn('id', sql.raw('INTEGER'), (column) => column.primaryKey())
+						.addColumn('resource_id', sql.raw('TEXT'), (column) => column.notNull())
+						.addColumn('updated_time', sql.raw('INT'), (column) => column.notNull())
+						.addColumn('created_time', sql.raw('INT'), (column) => column.notNull()),
+				);
+				queries.push(newTableSql);
 
-				queries.push('CREATE INDEX resources_to_download_resource_id ON resources_to_download (resource_id)');
-				queries.push('CREATE INDEX resources_to_download_updated_time ON resources_to_download (updated_time)');
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.createIndex('resources_to_download_resource_id')
+						.on('resources_to_download')
+						.columns(['resource_id']),
+				));
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.createIndex('resources_to_download_updated_time')
+						.on('resources_to_download')
+						.columns(['updated_time']),
+				));
 			}
 
 			if (targetVersion === 23) {
-				const newTableSql = `
-					CREATE TABLE key_values (
-						id INTEGER PRIMARY KEY,
-						\`key\` TEXT NOT NULL,
-						\`value\` TEXT NOT NULL,
-						\`type\` INT NOT NULL,
-						updated_time INT NOT NULL
-					);
-				`;
-				queries.push(sqlStringToLines(newTableSql)[0]);
+				const newTableSql = compileQuery(
+					queryBuilder.schema
+						.createTable('key_values')
+						.addColumn('id', sql.raw('INTEGER'), (column) => column.primaryKey())
+						.addColumn('key', sql.raw('TEXT'), (column) => column.notNull())
+						.addColumn('value', sql.raw('TEXT'), (column) => column.notNull())
+						.addColumn('type', sql.raw('INT'), (column) => column.notNull())
+						.addColumn('updated_time', sql.raw('INT'), (column) => column.notNull()),
+				);
+				queries.push(newTableSql);
 
-				queries.push('CREATE UNIQUE INDEX key_values_key ON key_values (key)');
+				queries.push(compileQuery(queryBuilder.schema.createIndex('key_values_key').unique().on('key_values').columns(['key'])));
 			}
 
 			if (targetVersion === 24) {
-				queries.push('ALTER TABLE notes ADD COLUMN `markup_language` INT NOT NULL DEFAULT 1'); // 1: Markdown, 2: HTML
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('notes')
+						.addColumn('markup_language', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('1'))),
+				)); // 1: Markdown, 2: HTML
 			}
 
 			if (targetVersion === 25) {
-				queries.push(`CREATE VIEW tags_with_note_count AS 
-						SELECT tags.id as id, tags.title as title, tags.created_time as created_time, tags.updated_time as updated_time, COUNT(notes.id) as note_count 
-						FROM tags 
-							LEFT JOIN note_tags nt on nt.tag_id = tags.id 
-							LEFT JOIN notes on notes.id = nt.note_id 
-						WHERE notes.id IS NOT NULL 
-						GROUP BY tags.id`);
+				queries.push(compileQuery(
+					queryBuilder.schema.createView('tags_with_note_count').as(
+						queryBuilder
+							.selectFrom('tags')
+							.leftJoin('note_tags as nt', (join) =>
+								join.on((eb) => eb(sql.ref('nt.tag_id'), '=', sql.ref('tags.id'))),
+							)
+							.leftJoin('notes', (join) => join.on((eb) => eb(sql.ref('notes.id'), '=', sql.ref('nt.note_id'))))
+							.select([
+								sql.ref('tags.id').as('id'),
+								sql.ref('tags.title').as('title'),
+								sql.ref('tags.created_time').as('created_time'),
+								sql.ref('tags.updated_time').as('updated_time'),
+								queryBuilder.fn('count', [sql.ref('notes.id')]).as('note_count'),
+							])
+							.where((eb) => eb(sql.ref('notes.id'), 'is not', sql.val(null)))
+							.groupBy(['tags.id']),
+					),
+				));
 			}
 
 			if (targetVersion === 26) {
 				const tableNames = ['notes', 'folders', 'tags', 'note_tags', 'resources'];
 				for (let i = 0; i < tableNames.length; i++) {
 					const n = tableNames[i];
-					queries.push(`ALTER TABLE ${n} ADD COLUMN is_shared INT NOT NULL DEFAULT 0`);
+					queries.push(compileQuery(
+						queryBuilder.schema
+							.alterTable(n)
+							.addColumn('is_shared', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('0'))),
+					));
 				}
 			}
 
@@ -767,11 +1004,17 @@ export default class JoplinDatabase extends Database {
 			}
 
 			if (targetVersion === 28) {
-				queries.push('CREATE INDEX resources_size ON resources(size)');
+				queries.push(compileQuery(queryBuilder.schema.createIndex('resources_size').on('resources').columns(['size'])));
 			}
 
 			if (targetVersion === 29) {
-				queries.push('ALTER TABLE version ADD COLUMN table_fields_version INT NOT NULL DEFAULT 0');
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('version')
+						.addColumn('table_fields_version', sql.raw('INT'), (column) =>
+							column.notNull().defaultTo(sql.raw('0')),
+						),
+				));
 			}
 
 			if (targetVersion === 30) {
@@ -815,22 +1058,43 @@ export default class JoplinDatabase extends Database {
 				// This empty version is due to the revert of the hierarchical tag feature
 				// We need to keep the version for the users who have upgraded using
 				// the pre-release
-				queries.push('ALTER TABLE tags ADD COLUMN parent_id TEXT NOT NULL DEFAULT ""');
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('tags')
+						.addColumn('parent_id', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""'))),
+				));
 				// Drop the tag note count view, instead compute note count on the fly
-				// queries.push('DROP VIEW tags_with_note_count');
+				// queries.push(compileQuery(queryBuilder.schema.dropView('tags_with_note_count')).sql);
 				// queries.push(addMigrationFile(31));
 			}
 
 			if (targetVersion === 32) {
 				// This is the same as version 25 - this is to complete the
 				// revert of the hierarchical tag feature.
-				queries.push(`CREATE VIEW IF NOT EXISTS tags_with_note_count AS 
-						SELECT tags.id as id, tags.title as title, tags.created_time as created_time, tags.updated_time as updated_time, COUNT(notes.id) as note_count 
-						FROM tags 
-							LEFT JOIN note_tags nt on nt.tag_id = tags.id 
-							LEFT JOIN notes on notes.id = nt.note_id 
-						WHERE notes.id IS NOT NULL 
-						GROUP BY tags.id`);
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.createView('tags_with_note_count')
+						.ifNotExists()
+						.as(
+							queryBuilder
+								.selectFrom('tags')
+								.leftJoin('note_tags as nt', (join) =>
+									join.on((eb) => eb(sql.ref('nt.tag_id'), '=', sql.ref('tags.id'))),
+								)
+								.leftJoin('notes', (join) =>
+									join.on((eb) => eb(sql.ref('notes.id'), '=', sql.ref('nt.note_id'))),
+								)
+								.select([
+									sql.ref('tags.id').as('id'),
+									sql.ref('tags.title').as('title'),
+									sql.ref('tags.created_time').as('created_time'),
+									sql.ref('tags.updated_time').as('updated_time'),
+									queryBuilder.fn('count', [sql.ref('notes.id')]).as('note_count'),
+								])
+								.where((eb) => eb(sql.ref('notes.id'), 'is not', sql.val(null)))
+								.groupBy(['tags.id']),
+						),
+				));
 			}
 
 			if (targetVersion === 33) {
@@ -839,41 +1103,77 @@ export default class JoplinDatabase extends Database {
 				queries.push('DROP TRIGGER notes_after_update');
 				queries.push('DROP TRIGGER notes_after_insert');
 
-				queries.push('DROP INDEX notes_normalized_id');
-				queries.push('DROP TABLE notes_normalized');
-				queries.push('DROP TABLE notes_fts');
+				queries.push(compileQuery(queryBuilder.schema.dropIndex('notes_normalized_id')).sql);
+				queries.push(compileQuery(queryBuilder.schema.dropTable('notes_normalized')).sql);
+				queries.push(compileQuery(queryBuilder.schema.dropTable('notes_fts')).sql);
 
 
-				const notesNormalized = `
-					CREATE TABLE notes_normalized (
-						id TEXT NOT NULL,
-						title TEXT NOT NULL DEFAULT "",
-						body TEXT NOT NULL DEFAULT "",
-						user_created_time INT NOT NULL DEFAULT 0,
-						user_updated_time INT NOT NULL DEFAULT 0,
-						is_todo INT NOT NULL DEFAULT 0,
-						todo_completed INT NOT NULL DEFAULT 0,
-						parent_id TEXT NOT NULL DEFAULT "",
-						latitude NUMERIC NOT NULL DEFAULT 0,
-						longitude NUMERIC NOT NULL DEFAULT 0,
-						altitude NUMERIC NOT NULL DEFAULT 0,
-						source_url TEXT NOT NULL DEFAULT ""
-					);
-				`;
+				const notesNormalized = compileQuery(
+					queryBuilder.schema
+						.createTable('notes_normalized')
+						.addColumn('id', sql.raw('TEXT'), (column) => column.notNull())
+						.addColumn('title', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+						.addColumn('body', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+						.addColumn('user_created_time', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('0')))
+						.addColumn('user_updated_time', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('0')))
+						.addColumn('is_todo', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('0')))
+						.addColumn('todo_completed', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('0')))
+						.addColumn('parent_id', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+						.addColumn('latitude', sql.raw('NUMERIC'), (column) => column.notNull().defaultTo(sql.raw('0')))
+						.addColumn('longitude', sql.raw('NUMERIC'), (column) => column.notNull().defaultTo(sql.raw('0')))
+						.addColumn('altitude', sql.raw('NUMERIC'), (column) => column.notNull().defaultTo(sql.raw('0')))
+						.addColumn('source_url', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""'))),
+				);
 
-				queries.push(sqlStringToLines(notesNormalized)[0]);
+				queries.push(notesNormalized);
 
-				queries.push('CREATE INDEX notes_normalized_id ON notes_normalized (id)');
+				queries.push(compileQuery(queryBuilder.schema.createIndex('notes_normalized_id').on('notes_normalized').columns(['id'])));
 
-				queries.push('CREATE INDEX notes_normalized_user_created_time ON notes_normalized (user_created_time)');
-				queries.push('CREATE INDEX notes_normalized_user_updated_time ON notes_normalized (user_updated_time)');
-				queries.push('CREATE INDEX notes_normalized_is_todo ON notes_normalized (is_todo)');
-				queries.push('CREATE INDEX notes_normalized_todo_completed ON notes_normalized (todo_completed)');
-				queries.push('CREATE INDEX notes_normalized_parent_id ON notes_normalized (parent_id)');
-				queries.push('CREATE INDEX notes_normalized_latitude ON notes_normalized (latitude)');
-				queries.push('CREATE INDEX notes_normalized_longitude ON notes_normalized (longitude)');
-				queries.push('CREATE INDEX notes_normalized_altitude ON notes_normalized (altitude)');
-				queries.push('CREATE INDEX notes_normalized_source_url ON notes_normalized (source_url)');
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.createIndex('notes_normalized_user_created_time')
+						.on('notes_normalized')
+						.columns(['user_created_time']),
+				));
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.createIndex('notes_normalized_user_updated_time')
+						.on('notes_normalized')
+						.columns(['user_updated_time']),
+				));
+				queries.push(compileQuery(
+					queryBuilder.schema.createIndex('notes_normalized_is_todo').on('notes_normalized').columns(['is_todo']),
+				));
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.createIndex('notes_normalized_todo_completed')
+						.on('notes_normalized')
+						.columns(['todo_completed']),
+				));
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.createIndex('notes_normalized_parent_id')
+						.on('notes_normalized')
+						.columns(['parent_id']),
+				));
+				queries.push(compileQuery(
+					queryBuilder.schema.createIndex('notes_normalized_latitude').on('notes_normalized').columns(['latitude']),
+				));
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.createIndex('notes_normalized_longitude')
+						.on('notes_normalized')
+						.columns(['longitude']),
+				));
+				queries.push(compileQuery(
+					queryBuilder.schema.createIndex('notes_normalized_altitude').on('notes_normalized').columns(['altitude']),
+				));
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.createIndex('notes_normalized_source_url')
+						.on('notes_normalized')
+						.columns(['source_url']),
+				));
 
 				const tableFields = 'id, title, body, user_created_time, user_updated_time, is_todo, todo_completed, parent_id, latitude, longitude, altitude, source_url';
 
@@ -922,41 +1222,103 @@ export default class JoplinDatabase extends Database {
 			}
 
 			if (targetVersion === 35) {
-				queries.push('ALTER TABLE notes_normalized ADD COLUMN todo_due INT NOT NULL DEFAULT 0');
-				queries.push('CREATE INDEX notes_normalized_todo_due ON notes_normalized (todo_due)');
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('notes_normalized')
+						.addColumn('todo_due', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('0'))),
+				));
+				queries.push(compileQuery(
+					queryBuilder.schema.createIndex('notes_normalized_todo_due').on('notes_normalized').columns(['todo_due']),
+				));
 				queries.push(addMigrationFile(35));
 			}
 
 			if (targetVersion === 36) {
-				queries.push('ALTER TABLE folders ADD COLUMN share_id TEXT NOT NULL DEFAULT ""');
-				queries.push('ALTER TABLE notes ADD COLUMN share_id TEXT NOT NULL DEFAULT ""');
-				queries.push('ALTER TABLE resources ADD COLUMN share_id TEXT NOT NULL DEFAULT ""');
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('folders')
+						.addColumn('share_id', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""'))),
+				));
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('notes')
+						.addColumn('share_id', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""'))),
+				));
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('resources')
+						.addColumn('share_id', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""'))),
+				));
 			}
 
 			if (targetVersion === 38) {
-				queries.push('DROP VIEW tags_with_note_count');
-				queries.push(`CREATE VIEW tags_with_note_count AS 
-						SELECT tags.id as id, tags.title as title, tags.created_time as created_time, tags.updated_time as updated_time, COUNT(notes.id) as note_count, 
-							SUM(CASE WHEN notes.todo_completed > 0 THEN 1 ELSE 0 END) AS todo_completed_count
-						FROM tags 
-							LEFT JOIN note_tags nt on nt.tag_id = tags.id 
-							LEFT JOIN notes on notes.id = nt.note_id 
-						WHERE notes.id IS NOT NULL 
-						GROUP BY tags.id`);
+				queries.push(compileQuery(queryBuilder.schema.dropView('tags_with_note_count')).sql);
+				queries.push(compileQuery(
+					queryBuilder.schema.createView('tags_with_note_count').as(
+						queryBuilder
+							.selectFrom('tags')
+							.leftJoin('note_tags as nt', (join) =>
+								join.on((eb) => eb(sql.ref('nt.tag_id'), '=', sql.ref('tags.id'))),
+							)
+							.leftJoin('notes', (join) => join.on((eb) => eb(sql.ref('notes.id'), '=', sql.ref('nt.note_id'))))
+							.select([
+								sql.ref('tags.id').as('id'),
+								sql.ref('tags.title').as('title'),
+								sql.ref('tags.created_time').as('created_time'),
+								sql.ref('tags.updated_time').as('updated_time'),
+								queryBuilder.fn('count', [sql.ref('notes.id')]).as('note_count'),
+								queryBuilder
+									.fn('sum', [
+										queryBuilder
+											.case()
+											.when(sql.ref('notes.todo_completed'), '>', sql.val(0))
+											// eslint-disable-next-line promise/prefer-await-to-then -- Kysely CASE expression, not a Promise
+											.then(sql.val(1))
+											.else(sql.val(0))
+											.end(),
+									])
+									.as('todo_completed_count'),
+							])
+							.where((eb) => eb(sql.ref('notes.id'), 'is not', sql.val(null)))
+							.groupBy(['tags.id']),
+					),
+				));
 			}
 
 			if (targetVersion === 39) {
-				queries.push('ALTER TABLE `notes` ADD COLUMN conflict_original_id TEXT NOT NULL DEFAULT ""');
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('notes')
+						.addColumn('conflict_original_id', sql.raw('TEXT'), (column) =>
+							column.notNull().defaultTo(sql.raw('""')),
+						),
+				));
 			}
 
 			if (targetVersion === 40) {
-				queries.push('ALTER TABLE `folders` ADD COLUMN master_key_id TEXT NOT NULL DEFAULT ""');
-				queries.push('ALTER TABLE `notes` ADD COLUMN master_key_id TEXT NOT NULL DEFAULT ""');
-				queries.push('ALTER TABLE `resources` ADD COLUMN master_key_id TEXT NOT NULL DEFAULT ""');
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('folders')
+						.addColumn('master_key_id', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""'))),
+				));
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('notes')
+						.addColumn('master_key_id', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""'))),
+				));
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('resources')
+						.addColumn('master_key_id', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""'))),
+				));
 			}
 
 			if (targetVersion === 41) {
-				queries.push('ALTER TABLE `folders` ADD COLUMN icon TEXT NOT NULL DEFAULT ""');
+				queries.push(compileQuery(
+					queryBuilder.schema
+						.alterTable('folders')
+						.addColumn('icon', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""'))),
+				));
 			}
 
 			if (targetVersion > 41) {
@@ -966,7 +1328,7 @@ export default class JoplinDatabase extends Database {
 				queries = queries.concat(migrationQueries);
 			}
 
-			const updateVersionQuery = { sql: 'UPDATE version SET version = ?', params: [targetVersion] };
+			const updateVersionQuery = compileQuery(queryBuilder.updateTable('version').set({ 'version': sql.val(targetVersion) }));
 
 			queries.push(updateVersionQuery);
 
@@ -1004,7 +1366,7 @@ export default class JoplinDatabase extends Database {
 
 	public async ftsEnabled() {
 		try {
-			await this.selectOne('SELECT count(*) FROM notes_fts');
+			await this.selectOne(compileQuery(queryBuilder.selectFrom('notes_fts').select([queryBuilder.fn.countAll().as('count(*)')])));
 		} catch (error) {
 			this.logger().warn('FTS check failed', error);
 			return false;
@@ -1017,7 +1379,7 @@ export default class JoplinDatabase extends Database {
 
 	public async fuzzySearchEnabled() {
 		try {
-			await this.selectOne('SELECT count(*) FROM notes_spellfix');
+			await this.selectOne(compileQuery(queryBuilder.selectFrom('notes_spellfix').select([queryBuilder.fn.countAll().as('count(*)')])));
 		} catch (error) {
 			this.logger().warn('Fuzzy search check failed', error);
 			return false;
@@ -1036,7 +1398,7 @@ export default class JoplinDatabase extends Database {
 		let versionRow = null;
 		try {
 			// Will throw if the database has not been created yet, but this is handled below
-			versionRow = await this.selectOne('SELECT * FROM version LIMIT 1');
+			versionRow = await this.selectOne(compileQuery(queryBuilder.selectFrom('version').selectAll().limit(1)));
 		} catch (error) {
 			if (error.message && error.message.indexOf('no such table: version') >= 0) {
 				// Ignore
@@ -1059,7 +1421,7 @@ export default class JoplinDatabase extends Database {
 
 		this.tableFields_ = {};
 
-		const rows = await this.selectAll('SELECT * FROM table_fields');
+		const rows = await this.selectAll(compileQuery(queryBuilder.selectFrom('table_fields').selectAll()));
 
 		for (let i = 0; i < rows.length; i++) {
 			const row = rows[i];

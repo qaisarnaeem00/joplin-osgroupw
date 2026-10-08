@@ -1,3 +1,4 @@
+import { compileQuery, queryBuilder, sql } from '../services/database/queryBuilder';
 import BaseModel from '../BaseModel';
 import { AlarmEntity, NoteEntity } from '../services/database/types';
 import Note from './Note';
@@ -20,16 +21,29 @@ export default class Alarm extends BaseModel {
 	}
 
 	public static byNoteId(noteId: string) {
-		return this.modelSelectOne('SELECT * FROM alarms WHERE note_id = ?', [noteId]);
+		return this.modelSelectOne(compileQuery(
+			queryBuilder
+				.selectFrom('alarms')
+				.selectAll()
+				.where((eb) => eb(sql.ref('note_id'), '=', sql.val(noteId))),
+		));
 	}
 
 	public static async deleteExpiredAlarms() {
-		return this.db().exec('DELETE FROM alarms WHERE trigger_time <= ?', [Date.now()]);
+		return this.db().exec(compileQuery(
+			queryBuilder.deleteFrom('alarms').where((eb) => eb(sql.ref('trigger_time'), '<=', sql.val(Date.now()))),
+		));
 	}
 
 	public static async alarmIdsWithoutNotes() {
 		// https://stackoverflow.com/a/4967229/561309
-		const alarms = await this.db().selectAll('SELECT alarms.id FROM alarms LEFT JOIN notes ON alarms.note_id = notes.id WHERE notes.id IS NULL') as { id: number }[];
+		const alarms = await this.db().selectAll(compileQuery(
+			queryBuilder
+				.selectFrom('alarms')
+				.leftJoin('notes', (join) => join.on((eb) => eb(sql.ref('alarms.note_id'), '=', sql.ref('notes.id'))))
+				.select(['alarms.id'])
+				.where((eb) => eb(sql.ref('notes.id'), 'is', sql.val(null))),
+		)) as { id: number }[];
 		return alarms.map(a => {
 			return a.id;
 		});
@@ -57,6 +71,11 @@ export default class Alarm extends BaseModel {
 	}
 
 	public static async allDue() {
-		return this.modelSelectAll('SELECT * FROM alarms WHERE trigger_time >= ?', [Date.now()]);
+		return this.modelSelectAll(compileQuery(
+			queryBuilder
+				.selectFrom('alarms')
+				.selectAll()
+				.where((eb) => eb(sql.ref('trigger_time'), '>=', sql.val(Date.now()))),
+		));
 	}
 }

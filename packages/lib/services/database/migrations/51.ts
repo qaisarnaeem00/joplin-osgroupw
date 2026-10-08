@@ -1,17 +1,37 @@
+import { compileQuery, queryBuilder, sql } from '../queryBuilder';
 import { SqlQuery } from '../types';
 
 export default (): (SqlQuery|string)[] => {
 	return [
-		'ALTER TABLE sync_items ADD COLUMN base_body TEXT NOT NULL DEFAULT ""',
-		'ALTER TABLE sync_items ADD COLUMN base_title TEXT NOT NULL DEFAULT ""',
-		'ALTER TABLE sync_items ADD COLUMN base_conflict_note_id TEXT NOT NULL DEFAULT ""',
-		`CREATE TABLE IF NOT EXISTS conflict_note_states (
-			note_id TEXT PRIMARY KEY,
-			base_body TEXT NOT NULL DEFAULT "",
-			base_title TEXT NOT NULL DEFAULT "",
-			remote_body TEXT NOT NULL DEFAULT "",
-			remote_title TEXT NOT NULL DEFAULT "",
-			remote_updated_time INT NOT NULL DEFAULT 0
-		)`,
+		compileQuery(
+			queryBuilder.schema
+				.alterTable('sync_items')
+				.addColumn('base_body', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""'))),
+		),
+		compileQuery(
+			queryBuilder.schema
+				.alterTable('sync_items')
+				.addColumn('base_title', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""'))),
+		),
+		compileQuery(
+			queryBuilder.schema
+				.alterTable('sync_items')
+				.addColumn('base_conflict_note_id', sql.raw('TEXT'), (column) =>
+					column.notNull().defaultTo(sql.raw('""')),
+				),
+		),
+		compileQuery(
+			queryBuilder.schema
+				.createTable('conflict_note_states')
+				.ifNotExists()
+				.addColumn('note_id', sql.raw('TEXT'), (column) => column.primaryKey())
+				.addColumn('base_body', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+				.addColumn('base_title', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+				.addColumn('remote_body', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+				.addColumn('remote_title', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+				.addColumn('remote_updated_time', sql.raw('INT'), (column) =>
+					column.notNull().defaultTo(sql.raw('0')),
+				),
+		),
 	];
 };

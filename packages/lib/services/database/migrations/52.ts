@@ -1,3 +1,4 @@
+import { compileQuery, queryBuilder, sql } from '../queryBuilder';
 import { SqlQuery } from '../types';
 
 // Storage for the AI embeddings index. Two tables:
@@ -18,15 +19,31 @@ import { SqlQuery } from '../types';
 
 export default (): (SqlQuery|string)[] => {
 	return [
-		`CREATE TABLE IF NOT EXISTS note_embeddings_meta (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			note_id TEXT NOT NULL,
-			chunk_index INTEGER NOT NULL,
-			model_id TEXT NOT NULL,
-			chunk_text TEXT NOT NULL,
-			created_time INT NOT NULL DEFAULT 0
-		)`,
-		'CREATE INDEX IF NOT EXISTS note_embeddings_meta_note_id ON note_embeddings_meta(note_id)',
-		'CREATE UNIQUE INDEX IF NOT EXISTS note_embeddings_meta_note_chunk ON note_embeddings_meta(note_id, chunk_index)',
+		compileQuery(
+			queryBuilder.schema
+				.createTable('note_embeddings_meta')
+				.ifNotExists()
+				.addColumn('id', sql.raw('INTEGER'), (column) => column.primaryKey().autoIncrement())
+				.addColumn('note_id', sql.raw('TEXT'), (column) => column.notNull())
+				.addColumn('chunk_index', sql.raw('INTEGER'), (column) => column.notNull())
+				.addColumn('model_id', sql.raw('TEXT'), (column) => column.notNull())
+				.addColumn('chunk_text', sql.raw('TEXT'), (column) => column.notNull())
+				.addColumn('created_time', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('0'))),
+		),
+		compileQuery(
+			queryBuilder.schema
+				.createIndex('note_embeddings_meta_note_id')
+				.ifNotExists()
+				.on('note_embeddings_meta')
+				.columns(['note_id']),
+		),
+		compileQuery(
+			queryBuilder.schema
+				.createIndex('note_embeddings_meta_note_chunk')
+				.ifNotExists()
+				.unique()
+				.on('note_embeddings_meta')
+				.columns(['note_id', 'chunk_index']),
+		),
 	];
 };

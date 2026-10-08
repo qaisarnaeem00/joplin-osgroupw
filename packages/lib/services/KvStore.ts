@@ -1,3 +1,4 @@
+import { compileQuery, queryBuilder, sql } from './database/queryBuilder';
 import { MutexInterface } from 'async-mutex';
 import JoplinDatabase from '../JoplinDatabase';
 import BaseService from './BaseService';
@@ -68,30 +69,49 @@ export default class KvStore extends BaseService {
 	}
 
 	public async value(key: string): Promise<string | number | null> {
-		const r = await this.db().selectOne('SELECT `value`, `type` FROM key_values WHERE `key` = ?', [key]);
+		const r = await this.db().selectOne(compileQuery(
+			queryBuilder
+				.selectFrom('key_values')
+				.select(['value', 'type'])
+				.where((eb) => eb(sql.ref('key'), '=', sql.val(key))),
+		));
 		if (!r) return null;
 		return this.formatValue_(r.value, r.type);
 	}
 
 	public async setValue(key: string, value: string | number) {
 		const t = Date.now();
-		await this.db().exec('INSERT OR REPLACE INTO key_values (`key`, `value`, `type`, `updated_time`) VALUES (?, ?, ?, ?)', [key, value, this.typeFromValue_(value), t]);
+		await this.db().exec(compileQuery(
+			queryBuilder
+				.insertInto('key_values')
+				.orReplace()
+				.values([
+					{
+						key: sql.val(key),
+						value: sql.val(value),
+						type: sql.val(this.typeFromValue_(value)),
+						updated_time: sql.val(t),
+					},
+				]),
+		));
 	}
 
 	public async deleteValue(key: string) {
-		await this.db().exec('DELETE FROM key_values WHERE `key` = ?', [key]);
+		await this.db().exec(compileQuery(queryBuilder.deleteFrom('key_values').where(eb => eb(sql.ref('key'), '=', sql.val(key)))));
 	}
 
 	public async deleteByPrefix(prefix: string) {
-		await this.db().exec('DELETE FROM key_values WHERE `key` LIKE ?', [`${prefix}%`]);
+		await this.db().exec(compileQuery(
+			queryBuilder.deleteFrom('key_values').where((eb) => eb(sql.ref('key'), 'like', sql.val(`${prefix}%`))),
+		));
 	}
 
 	public async clear() {
-		await this.db().exec('DELETE FROM key_values');
+		await this.db().exec(compileQuery(queryBuilder.deleteFrom('key_values')));
 	}
 
 	public async all() {
-		return this.formatValues_(await this.db().selectAll('SELECT * FROM key_values') as unknown as KvStoreKeyValue[]);
+		return this.formatValues_(await this.db().selectAll(compileQuery(queryBuilder.selectFrom('key_values').selectAll())) as unknown as KvStoreKeyValue[]);
 	}
 
 	// Note: atomicity is done at application level so two difference instances
@@ -100,7 +120,12 @@ export default class KvStore extends BaseService {
 		const release = await this.incMutex_.acquire();
 
 		try {
-			const result = await this.db().selectOne('SELECT `value`, `type` FROM key_values WHERE `key` = ?', [key]);
+			const result = await this.db().selectOne(compileQuery(
+				queryBuilder
+					.selectFrom('key_values')
+					.select(['value', 'type'])
+					.where((eb) => eb(sql.ref('key'), '=', sql.val(key))),
+			));
 			const newValue = result ? (this.formatValue_(result.value, result.type) as ValueType.Int) + inc : inc;
 			await this.setValue(key, newValue);
 			release();
@@ -112,12 +137,17 @@ export default class KvStore extends BaseService {
 	}
 
 	public async searchByPrefix(prefix: string): Promise<KvStoreKeyValue[]> {
-		const results = await this.db().selectAll('SELECT `key`, `value`, `type` FROM key_values WHERE `key` LIKE ?', [`${prefix}%`]);
+		const results = await this.db().selectAll(compileQuery(
+			queryBuilder
+				.selectFrom('key_values')
+				.select(['key', 'value', 'type'])
+				.where((eb) => eb(sql.ref('key'), 'like', sql.val(`${prefix}%`))),
+		));
 		return this.formatValues_(results as unknown as KvStoreKeyValue[]);
 	}
 
 	public async countKeys() {
-		const r = await this.db().selectOne('SELECT count(*) as total FROM key_values');
+		const r = await this.db().selectOne(compileQuery(queryBuilder.selectFrom('key_values').select([queryBuilder.fn.countAll().as('total')])));
 		return r.total ? r.total : 0;
 	}
 }

@@ -1,3 +1,4 @@
+import { compileQuery, queryBuilder, sql, selectQuery, literalStrings } from './database/queryBuilder';
 import ItemChange from '../models/ItemChange';
 import Note from '../models/Note';
 import Folder from '../models/Folder';
@@ -127,25 +128,31 @@ export default class RevisionService extends BaseService {
 				// See synchronizer test units to see why changes coming
 				// from sync are skipped.
 				const changes: ItemChangeEntity[] = await ItemChange.modelSelectAll(
-					`
-					SELECT id, item_id, type, before_change_item
-					FROM item_changes
-					WHERE item_type = ?
-					AND source != ?
-					AND source != ?
-					AND id > ?
-					ORDER BY id ASC
-					LIMIT 10
-				`,
-					[BaseModel.TYPE_NOTE, ItemChange.SOURCE_SYNC, ItemChange.SOURCE_DECRYPTION, Setting.value('revisionService.lastProcessedChangeId')],
+					compileQuery(
+						queryBuilder
+							.selectFrom('item_changes')
+							.select(['id', 'item_id', 'type', 'before_change_item'])
+							.where((eb) =>
+								eb.and([
+									eb.and([
+										eb.and([
+											eb(sql.ref('item_type'), '=', sql.val(BaseModel.TYPE_NOTE)),
+											eb(sql.ref('source'), '!=', sql.val(ItemChange.SOURCE_SYNC)),
+										]),
+										eb(sql.ref('source'), '!=', sql.val(ItemChange.SOURCE_DECRYPTION)),
+									]),
+									eb(sql.ref('id'), '>', sql.val(Setting.value('revisionService.lastProcessedChangeId'))),
+								]),
+							)
+							.orderBy(sql.ref('id'), 'asc')
+							.limit(10),
+					),
 				);
 
 				if (!changes.length) break;
 
 				const noteIds = changes.map((a) => a.item_id);
-				const notes = await Note.modelSelectAll(`SELECT * FROM notes WHERE is_conflict = 0 AND encryption_applied = 0 AND id IN (${
-					Note.escapeIdsForSql(noteIds)
-				})`);
+				const notes = await Note.modelSelectAll(selectQuery('notes').where('is_conflict', '=', 0).where('encryption_applied', '=', 0).where('id', 'in', literalStrings(noteIds)));
 
 				for (let i = 0; i < changes.length; i++) {
 					const change = changes[i];

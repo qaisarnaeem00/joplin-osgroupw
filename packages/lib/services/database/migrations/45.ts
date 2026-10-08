@@ -1,36 +1,60 @@
+import { compileQuery, queryBuilder, sql } from '../queryBuilder';
 import sqlStringToLines from '../sqlStringToLines';
 import { SqlQuery } from '../types';
 
 export default (): (SqlQuery|string)[] => {
 	const queries: (SqlQuery|string)[] = [];
 
-	queries.push('ALTER TABLE `resources` ADD COLUMN `ocr_text` TEXT NOT NULL DEFAULT ""');
-	queries.push('ALTER TABLE `resources` ADD COLUMN `ocr_details` TEXT NOT NULL DEFAULT ""');
-	queries.push('ALTER TABLE `resources` ADD COLUMN `ocr_status` INT NOT NULL DEFAULT 0');
-	queries.push('ALTER TABLE `resources` ADD COLUMN `ocr_error` TEXT NOT NULL DEFAULT ""');
+	queries.push(compileQuery(
+		queryBuilder.schema
+			.alterTable('resources')
+			.addColumn('ocr_text', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""'))),
+	));
+	queries.push(compileQuery(
+		queryBuilder.schema
+			.alterTable('resources')
+			.addColumn('ocr_details', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""'))),
+	));
+	queries.push(compileQuery(
+		queryBuilder.schema
+			.alterTable('resources')
+			.addColumn('ocr_status', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('0'))),
+	));
+	queries.push(compileQuery(
+		queryBuilder.schema
+			.alterTable('resources')
+			.addColumn('ocr_error', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""'))),
+	));
 
-	const itemsNormalized = `
-		CREATE TABLE items_normalized (
-			id INTEGER PRIMARY KEY AUTOINCREMENT, 
-			title TEXT NOT NULL DEFAULT "",
-			body TEXT NOT NULL DEFAULT "",
-			item_id TEXT NOT NULL,
-			item_type INT NOT NULL,
-			user_updated_time INT NOT NULL DEFAULT 0,
-			reserved1 INT NULL,
-			reserved2 INT NULL,
-			reserved3 INT NULL,
-			reserved4 INT NULL,
-			reserved5 INT NULL,
-			reserved6 INT NULL
-		);
-	`;
+	const itemsNormalized = compileQuery(
+		queryBuilder.schema
+			.createTable('items_normalized')
+			.addColumn('id', sql.raw('INTEGER'), (column) => column.primaryKey().autoIncrement())
+			.addColumn('title', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+			.addColumn('body', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+			.addColumn('item_id', sql.raw('TEXT'), (column) => column.notNull())
+			.addColumn('item_type', sql.raw('INT'), (column) => column.notNull())
+			.addColumn('user_updated_time', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('0')))
+			.addColumn('reserved1', sql.raw('INT'))
+			.addColumn('reserved2', sql.raw('INT'))
+			.addColumn('reserved3', sql.raw('INT'))
+			.addColumn('reserved4', sql.raw('INT'))
+			.addColumn('reserved5', sql.raw('INT'))
+			.addColumn('reserved6', sql.raw('INT')),
+	);
 
-	queries.push(sqlStringToLines(itemsNormalized)[0]);
+	queries.push(itemsNormalized);
 
-	queries.push('CREATE INDEX items_normalized_id ON items_normalized (id)');
-	queries.push('CREATE INDEX items_normalized_item_id ON items_normalized (item_id)');
-	queries.push('CREATE INDEX items_normalized_item_type ON items_normalized (item_type)');
+	queries.push(compileQuery(queryBuilder.schema.createIndex('items_normalized_id').on('items_normalized').columns(['id'])));
+	queries.push(compileQuery(
+		queryBuilder.schema.createIndex('items_normalized_item_id').on('items_normalized').columns(['item_id']),
+	));
+	queries.push(compileQuery(
+		queryBuilder.schema
+			.createIndex('items_normalized_item_type')
+			.on('items_normalized')
+			.columns(['item_type']),
+	));
 
 	const tableFields = 'id, title, body, item_id, item_type, user_updated_time, reserved1, reserved2, reserved3, reserved4, reserved5, reserved6';
 

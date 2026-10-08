@@ -19,6 +19,12 @@ module.exports = {
 
 	testPathIgnorePatterns: testPathIgnorePatterns,
 
+	transform: {
+		'^.+/kysely/dist/.+\\.js$': '<rootDir>/testing/kyselyTransformer.js',
+		'^.+\\.[jt]sx?$': 'babel-jest',
+	},
+	transformIgnorePatterns: ['/node_modules/(?!kysely/)'],
+
 	testEnvironment: 'node',
 
 	setupFilesAfterEnv: [

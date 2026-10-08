@@ -1,3 +1,4 @@
+import { compileQuery, queryBuilder, sql } from '../services/database/queryBuilder';
 import BaseModel, { DeleteOptions } from '../BaseModel';
 import { ResourceLocalStateEntity } from '../services/database/types';
 import Database from '../database';
@@ -15,7 +16,12 @@ export default class ResourceLocalState extends BaseModel {
 	public static async byResourceId(resourceId: string) {
 		if (!resourceId) throw new Error('Resource ID not provided'); // Sanity check
 
-		const result = await this.modelSelectOne('SELECT * FROM resource_local_states WHERE resource_id = ?', [resourceId]);
+		const result = await this.modelSelectOne(compileQuery(
+			queryBuilder
+				.selectFrom('resource_local_states')
+				.selectAll()
+				.where((eb) => eb(sql.ref('resource_id'), '=', sql.val(resourceId))),
+		));
 
 		if (!result) {
 			const defaultRow = this.db().createDefaultRow(this.tableName());
@@ -28,7 +34,11 @@ export default class ResourceLocalState extends BaseModel {
 	}
 
 	public static saveQueries(o: ResourceLocalStateEntity) {
-		return [{ sql: 'DELETE FROM resource_local_states WHERE resource_id = ?', params: [o.resource_id] }, Database.insertQuery(this.tableName(), o)];
+		return [compileQuery(
+			queryBuilder
+				.deleteFrom('resource_local_states')
+				.where((eb) => eb(sql.ref('resource_id'), '=', sql.val(o.resource_id))),
+		), Database.insertQuery(this.tableName(), o)];
 	}
 
 	public static async save(o: ResourceLocalStateEntity) {

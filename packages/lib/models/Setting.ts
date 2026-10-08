@@ -1,3 +1,4 @@
+import { compileQuery, queryBuilder, sql, literalStrings } from '../services/database/queryBuilder';
 import shim from '../shim';
 import { _ } from '../locale';
 import eventManager, { EventName } from '../eventManager';
@@ -644,7 +645,12 @@ class Setting extends BaseModel {
 	// retrieve a value for a setting that was previously registered, but no longer is. Also to
 	// retrieve setting values for plugins before the plugin is actually loaded.
 	private static async loadOneFromDb<T extends string>(key: T): Promise<CacheItem<T> | null> {
-		const row = await this.modelSelectOne('SELECT key, value FROM settings WHERE key = ?', [key]);
+		const row = await this.modelSelectOne(compileQuery(
+			queryBuilder
+				.selectFrom('settings')
+				.select(['key', 'value'])
+				.where((eb) => eb(sql.ref('key'), '=', sql.val(key))),
+		));
 		return row ? row : null;
 	}
 
@@ -675,7 +681,12 @@ class Setting extends BaseModel {
 		// if writing to the keychain previously failed).
 		//
 		// https://github.com/laurent22/joplin/issues/5720
-		const row = await this.modelSelectOne('SELECT * FROM settings WHERE key = ?', [key]);
+		const row = await this.modelSelectOne(compileQuery(
+			queryBuilder
+				.selectFrom('settings')
+				.selectAll()
+				.where((eb) => eb(sql.ref('key'), '=', sql.val(key))),
+		));
 		if (row) return row;
 
 		if (this.settingMetadata(key).secure) {
@@ -695,7 +706,7 @@ class Setting extends BaseModel {
 		this.cancelScheduleChangeEvent();
 
 		this.cache_ = [];
-		const rows: CacheItem<unknown>[] = await this.modelSelectAll('SELECT * FROM settings');
+		const rows: CacheItem<unknown>[] = await this.modelSelectAll(compileQuery(queryBuilder.selectFrom('settings').selectAll()));
 
 
 		// Keys in the database takes precedence over keys in the keychain because
@@ -1127,7 +1138,7 @@ class Setting extends BaseModel {
 		}
 
 		const queries = [];
-		queries.push(`DELETE FROM settings WHERE key IN ('${keys.join('\',\'')}')`);
+		queries.push(compileQuery(queryBuilder.deleteFrom('settings').where('key', 'in', literalStrings(keys))));
 
 		for (let i = 0; i < this.cache_.length; i++) {
 			const s = { ...this.cache_[i] };

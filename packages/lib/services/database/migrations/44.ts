@@ -1,8 +1,13 @@
+import { compileQuery, queryBuilder, sql } from '../queryBuilder';
 import { SqlQuery } from '../types';
 
 export default (): (SqlQuery|string)[] => {
 	return [
-		'ALTER TABLE `resources` ADD COLUMN blob_updated_time INT NOT NULL DEFAULT 0',
-		'UPDATE `resources` SET blob_updated_time = updated_time',
+		compileQuery(
+			queryBuilder.schema
+				.alterTable('resources')
+				.addColumn('blob_updated_time', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('0'))),
+		),
+		compileQuery(queryBuilder.updateTable('resources').set({ 'blob_updated_time': sql.ref('updated_time') })),
 	];
 };

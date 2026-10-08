@@ -1,3 +1,4 @@
+import { compileQuery, queryBuilder, sql, selectQuery, literalStrings } from '../services/database/queryBuilder';
 import { ModelType, DeleteOptions } from '../BaseModel';
 import { BaseItemEntity, DeletedItemEntity, NoteEntity, SyncItemEntity } from '../services/database/types';
 import Setting from './Setting';
@@ -157,8 +158,8 @@ export default class BaseItem extends BaseModel {
 		const itemType = ItemClass.modelType();
 		// The fact that we don't check if the item_id still exist in the corresponding item table, means
 		// that the returned number might be inaccurate (for example if a sync operation was cancelled)
-		const sql = 'SELECT count(*) as total FROM sync_items WHERE sync_target = ? AND item_type = ?';
-		const r = await this.db().selectOne(sql, [syncTarget, itemType]);
+		const query = queryBuilder.selectFrom('sync_items').select(queryBuilder.fn.countAll().as('total')).where('sync_target', '=', syncTarget).where('item_type', '=', itemType);
+		const r = await this.db().selectOne(query);
 		return r.total;
 	}
 
@@ -199,7 +200,17 @@ export default class BaseItem extends BaseModel {
 	// Returns the IDs of the items that have been synced at least once
 	public static async syncedItemIds(syncTarget: number) {
 		if (!syncTarget) throw new Error('No syncTarget specified');
-		const temp = await this.db().selectAll('SELECT item_id FROM sync_items WHERE sync_time > 0 AND sync_target = ?', [syncTarget]);
+		const temp = await this.db().selectAll(compileQuery(
+			queryBuilder
+				.selectFrom('sync_items')
+				.select(['item_id'])
+				.where((eb) =>
+					eb.and([
+						eb(sql.ref('sync_time'), '>', sql.val(0)),
+						eb(sql.ref('sync_target'), '=', sql.val(syncTarget)),
+					]),
+				),
+		));
 		const output = [];
 		for (let i = 0; i < temp.length; i++) {
 			output.push(temp[i].item_id);
@@ -209,7 +220,17 @@ export default class BaseItem extends BaseModel {
 
 	public static async remoteItemMetadata(syncTarget: number): Promise<Map<string, RemoteItemMetadata>> {
 		if (!syncTarget) throw new Error('No syncTarget specified');
-		const temp = await this.db().selectAll('SELECT item_id, remote_item_updated_time FROM sync_items WHERE sync_time > 0 AND sync_target = ?', [syncTarget]);
+		const temp = await this.db().selectAll(compileQuery(
+			queryBuilder
+				.selectFrom('sync_items')
+				.select(['item_id', 'remote_item_updated_time'])
+				.where((eb) =>
+					eb.and([
+						eb(sql.ref('sync_time'), '>', sql.val(0)),
+						eb(sql.ref('sync_target'), '=', sql.val(syncTarget)),
+					]),
+				),
+		));
 		const output = new Map<string, RemoteItemMetadata>();
 		for (let i = 0; i < temp.length; i++) {
 			const metadata: RemoteItemMetadata = {
@@ -226,11 +247,16 @@ export default class BaseItem extends BaseModel {
 			fields: '*',
 			...options,
 		};
-		return await this.db().selectOne(`SELECT ${this.db().escapeFieldsToString(options.fields)} FROM sync_items WHERE sync_target = ? AND item_id = ?`, [syncTarget, itemId]);
+		return await this.db().selectOne(selectQuery('sync_items', options.fields).where('sync_target', '=', syncTarget).where('item_id', '=', itemId));
 	}
 
 	public static async allSyncItems(syncTarget: number) {
-		const output = await this.db().selectAll('SELECT * FROM sync_items WHERE sync_target = ?', [syncTarget]);
+		const output = await this.db().selectAll(compileQuery(
+			queryBuilder
+				.selectFrom('sync_items')
+				.selectAll()
+				.where((eb) => eb(sql.ref('sync_target'), '=', sql.val(syncTarget))),
+		));
 		return output;
 	}
 
@@ -265,8 +291,8 @@ export default class BaseItem extends BaseModel {
 		let output: any[] = [];
 		for (let i = 0; i < classes.length; i++) {
 			const ItemClass = this.getClass(classes[i]);
-			const sql = `SELECT * FROM ${ItemClass.tableName()} WHERE id IN (${this.escapeIdsForSql(ids)})`;
-			const models = await ItemClass.modelSelectAll(sql);
+			const query = selectQuery(ItemClass.tableName()).where('id', 'in', literalStrings(ids));
+			const models = await ItemClass.modelSelectAll(query);
 			output = output.concat(models);
 		}
 		return output;
@@ -290,9 +316,8 @@ export default class BaseItem extends BaseModel {
 
 		const fields = options && options.fields ? options.fields : [];
 		const ItemClass = this.getClassByItemType(itemType);
-		const fieldsSql = fields.length ? this.db().escapeFields(fields) : '*';
-		const sql = `SELECT ${fieldsSql} FROM ${ItemClass.tableName()} WHERE id IN (${this.escapeIdsForSql(ids)})`;
-		return ItemClass.modelSelectAll(sql);
+		const query = selectQuery(ItemClass.tableName(), fields.length ? fields : '*').where('id', 'in', literalStrings(ids));
+		return ItemClass.modelSelectAll(query);
 	}
 
 	public static async loadItemByTypeAndId(itemType: ModelType, id: string, options: LoadOptions = null) {
@@ -329,7 +354,7 @@ export default class BaseItem extends BaseModel {
 		// since no other client have (or should have) them.
 		let conflictNoteIds: string[] = [];
 		if (this.modelType() === BaseModel.TYPE_NOTE) {
-			const conflictNotes = await this.db().selectAll(`SELECT id FROM notes WHERE id IN (${this.escapeIdsForSql(ids)}) AND is_conflict = 1`);
+			const conflictNotes = await this.db().selectAll(selectQuery('notes', ['id']).where('id', 'in', literalStrings(ids)).where('is_conflict', '=', 1));
 			conflictNoteIds = conflictNotes.map((n: NoteEntity) => {
 				return n.id;
 			});
@@ -352,10 +377,18 @@ export default class BaseItem extends BaseModel {
 				// For each deleted item, for each sync target, we need to add an entry in deleted_items.
 				// That way, each target can later delete the remote item.
 				for (let j = 0; j < syncTargetIds.length; j++) {
-					queries.push({
-						sql: 'INSERT INTO deleted_items (item_type, item_id, deleted_time, sync_target) VALUES (?, ?, ?, ?)',
-						params: [this.modelType(), ids[i], now, syncTargetIds[j]],
-					});
+					queries.push(compileQuery(
+						queryBuilder
+							.insertInto('deleted_items')
+							.values([
+								{
+									item_type: sql.val(this.modelType()),
+									item_id: sql.val(ids[i]),
+									deleted_time: sql.val(now),
+									sync_target: sql.val(syncTargetIds[j]),
+								},
+							]),
+					));
 				}
 			}
 			await this.db().transactionExecBatch(queries);
@@ -372,17 +405,37 @@ export default class BaseItem extends BaseModel {
 	//   that it was previously deleted exist (deleted_items entry has been deleted).
 	// The solution would be to permanently store the list of deleted items on each client.
 	public static deletedItems(syncTarget: number): Promise<DeletedItemEntity[]> {
-		return this.db().selectAll('SELECT * FROM deleted_items WHERE sync_target = ?', [syncTarget]);
+		return this.db().selectAll(compileQuery(
+			queryBuilder
+				.selectFrom('deleted_items')
+				.selectAll()
+				.where((eb) => eb(sql.ref('sync_target'), '=', sql.val(syncTarget))),
+		));
 	}
 
 	public static async deletedItemCount(syncTarget: number) {
-		const r = await this.db().selectOne('SELECT count(*) as total FROM deleted_items WHERE sync_target = ?', [syncTarget]);
+		const r = await this.db().selectOne(compileQuery(
+			queryBuilder
+				.selectFrom('deleted_items')
+				.select([queryBuilder.fn.countAll().as('total')])
+				.where((eb) => eb(sql.ref('sync_target'), '=', sql.val(syncTarget))),
+		));
 		return r['total'];
 	}
 
 	public static async allItemsInTrash() {
-		const noteRows = await this.db().selectAll('SELECT id FROM notes WHERE deleted_time != 0');
-		const folderRows = await this.db().selectAll('SELECT id FROM folders WHERE deleted_time != 0');
+		const noteRows = await this.db().selectAll(compileQuery(
+			queryBuilder
+				.selectFrom('notes')
+				.select(['id'])
+				.where((eb) => eb(sql.ref('deleted_time'), '!=', sql.val(0))),
+		));
+		const folderRows = await this.db().selectAll(compileQuery(
+			queryBuilder
+				.selectFrom('folders')
+				.select(['id'])
+				.where((eb) => eb(sql.ref('deleted_time'), '!=', sql.val(0))),
+		));
 		return {
 			noteIds: noteRows.map(r => r.id),
 			folderIds: folderRows.map(r => r.id),
@@ -393,8 +446,7 @@ export default class BaseItem extends BaseModel {
 		if (itemIds.length === 0) return;
 
 		await this.db().exec(
-			`DELETE FROM deleted_items WHERE item_id IN (${this.escapeIdsForSql(itemIds)}) AND sync_target = ?`,
-			[syncTarget],
+			queryBuilder.deleteFrom('deleted_items').where('item_id', 'in', literalStrings(itemIds)).where('sync_target', '=', syncTarget),
 		);
 	}
 
@@ -694,30 +746,20 @@ export default class BaseItem extends BaseModel {
 			const className = classNames[i];
 			const ItemClass = this.getClass(className);
 
-			let whereSql = ['encryption_applied = 1'];
-
+			let query = selectQuery(ItemClass.tableName());
 			if (className === 'Resource') {
-				const blobDownloadedButEncryptedSql = 'encryption_blob_encrypted = 1 AND id IN (SELECT resource_id FROM resource_local_states WHERE fetch_status = 2))';
-				whereSql = [`(encryption_applied = 1 OR (${blobDownloadedButEncryptedSql})`];
+				query = query.where(eb => eb.or([
+					eb('encryption_applied', '=', 1),
+					eb.and([
+						eb('encryption_blob_encrypted', '=', 1),
+						eb('id', 'in', selectQuery('resource_local_states', ['resource_id']).where('fetch_status', '=', 2)),
+					]),
+				]));
+			} else {
+				query = query.where('encryption_applied', '=', 1);
 			}
-
-			if (exclusions.length) {
-				whereSql.push(`id NOT IN (${this.escapeIdsForSql(exclusions)})`);
-			}
-
-			const sql = sprintf(
-				`
-				SELECT *
-				FROM %s
-				WHERE %s
-				LIMIT %d
-				`,
-				this.db().escapeField(ItemClass.tableName()),
-				whereSql.join(' AND '),
-				limit,
-			);
-
-			const items = await ItemClass.modelSelectAll(sql);
+			if (exclusions.length) query = query.where('id', 'not in', literalStrings(exclusions));
+			const items = await ItemClass.modelSelectAll(query.limit(limit));
 
 			if (i >= classNames.length - 1) {
 				return { hasMore: items.length >= limit, items: items };
@@ -730,7 +772,12 @@ export default class BaseItem extends BaseModel {
 	}
 
 	public static async itemHasBeenSynced(itemId: string): Promise<boolean> {
-		const r = await this.db().selectOne('SELECT item_id FROM sync_items WHERE item_id = ?', [itemId]);
+		const r = await this.db().selectOne(compileQuery(
+			queryBuilder
+				.selectFrom('sync_items')
+				.select(['item_id'])
+				.where((eb) => eb(sql.ref('item_id'), '=', sql.val(itemId))),
+		));
 		return !!r;
 	}
 
@@ -749,68 +796,29 @@ export default class BaseItem extends BaseModel {
 			// // CHANGED:
 			// 'SELECT * FROM [ITEMS] items JOIN sync_items s ON s.item_id = items.id WHERE sync_target = ? AND'
 
-			let extraWhere: string[]|string = [];
-			if (className === 'Note') extraWhere.push('is_conflict = 0');
-			if (className === 'Resource') extraWhere.push('encryption_blob_encrypted = 0');
-			if (ItemClass.encryptionSupported()) extraWhere.push('encryption_applied = 0');
+			const filteredQuery = () => {
+				let query = selectQuery(`${ItemClass.tableName()} as items`, fieldNames);
+				if (className === 'Note') query = query.where('is_conflict', '=', 0);
+				if (className === 'Resource') query = query.where('encryption_blob_encrypted', '=', 0);
+				if (ItemClass.encryptionSupported()) query = query.where('encryption_applied', '=', 0);
+				return query.orderBy('items.updated_time', 'desc');
+			};
 
-			extraWhere = extraWhere.length ? `AND ${extraWhere.join(' AND ')}` : '';
-
-			// First get all the items that have never been synced under this sync target
-			//
-			// We order them by date descending so that latest modified notes go first.
-			// In most case it doesn't make a big difference, but when re-syncing the whole
-			// data set it does. In that case it means the recent notes, those that are likely
-			// to be modified again, will be synced first, thus avoiding potential conflicts.
-
-			const sql = sprintf(`
-				SELECT %s
-				FROM %s items
-				WHERE id NOT IN (
-					SELECT item_id FROM sync_items WHERE sync_target = %d
-				)
-				%s
-				ORDER BY items.updated_time DESC
-				LIMIT %d
-			`,
-			this.db().escapeFields(fieldNames),
-			this.db().escapeField(ItemClass.tableName()),
-			Number(syncTarget),
-			extraWhere,
-			limit,
-			);
-
-			const neverSyncedItem = await ItemClass.modelSelectAll(sql);
-
-			// Secondly get the items that have been synced under this sync target but that have been changed since then
+			// Sync recent items first to avoid conflicts while a full sync is running.
+			const neverSyncedItem = await ItemClass.modelSelectAll(filteredQuery()
+				.where('id', 'not in', selectQuery('sync_items', ['item_id']).where('sync_target', '=', Number(syncTarget)))
+				.limit(limit));
 
 			const newLimit = limit - neverSyncedItem.length;
-
 			let changedItems = [];
-
 			if (newLimit > 0) {
-				fieldNames.push('sync_time');
-				fieldNames.push('remote_item_updated_time');
-
-				const sql = sprintf(
-					`
-					SELECT %s FROM %s items
-					JOIN sync_items s ON s.item_id = items.id
-					WHERE sync_target = %d
-					AND (s.sync_time < items.updated_time OR force_sync = 1)
-					AND s.sync_disabled = 0
-					%s
-					ORDER BY items.updated_time DESC
-					LIMIT %d
-				`,
-					this.db().escapeFields(fieldNames),
-					this.db().escapeField(ItemClass.tableName()),
-					Number(syncTarget),
-					extraWhere,
-					newLimit,
-				);
-
-				changedItems = await ItemClass.modelSelectAll(sql);
+				fieldNames.push('sync_time', 'remote_item_updated_time');
+				changedItems = await ItemClass.modelSelectAll(filteredQuery()
+					.innerJoin('sync_items as s', 's.item_id', 'items.id')
+					.where('sync_target', '=', Number(syncTarget))
+					.where(eb => eb.or([eb('s.sync_time', '<', eb.ref('items.updated_time')), eb('force_sync', '=', 1)]))
+					.where('s.sync_disabled', '=', 0)
+					.limit(newLimit));
 			}
 
 			const neverSyncedItemIds = neverSyncedItem.map((it: BaseItemEntity) => it.id);
@@ -856,7 +864,17 @@ export default class BaseItem extends BaseModel {
 	}
 
 	public static async syncDisabledItems(syncTargetId: number) {
-		const rows = await this.db().selectAll('SELECT * FROM sync_items WHERE sync_disabled = 1 AND sync_target = ?', [syncTargetId]);
+		const rows = await this.db().selectAll(compileQuery(
+			queryBuilder
+				.selectFrom('sync_items')
+				.selectAll()
+				.where((eb) =>
+					eb.and([
+						eb(sql.ref('sync_disabled'), '=', sql.val(1)),
+						eb(sql.ref('sync_target'), '=', sql.val(syncTargetId)),
+					]),
+				),
+		));
 		const output = [];
 		for (let i = 0; i < rows.length; i++) {
 			const row = rows[i];
@@ -874,12 +892,10 @@ export default class BaseItem extends BaseModel {
 	}
 
 	public static async syncDisabledItemsCount(syncTargetId: number, includeIgnored = false) {
-		const whereQueries = ['sync_disabled = 1', 'sync_target = ?'];
-		const whereArgs = [syncTargetId];
-		if (!includeIgnored) {
-			whereQueries.push('sync_warning_ignored = 0');
-		}
-		const r = await this.db().selectOne(`SELECT count(*) as total FROM sync_items WHERE ${whereQueries.join(' AND ')}`, whereArgs);
+		let query = queryBuilder.selectFrom('sync_items').select(queryBuilder.fn.countAll().as('total'))
+			.where('sync_disabled', '=', 1).where('sync_target', '=', syncTargetId);
+		if (!includeIgnored) query = query.where('sync_warning_ignored', '=', 0);
+		const r = await this.db().selectOne(query);
 		return r ? r.total : 0;
 	}
 
@@ -896,14 +912,35 @@ export default class BaseItem extends BaseModel {
 		if (itemLocation === null) itemLocation = BaseItem.SYNC_ITEM_LOCATION_LOCAL;
 
 		return [
-			{
-				sql: 'DELETE FROM sync_items WHERE sync_target = ? AND item_type = ? AND item_id = ?',
-				params: [syncTarget, itemType, itemId],
-			},
-			{
-				sql: 'INSERT INTO sync_items (sync_target, item_type, item_id, item_location, sync_time, remote_item_updated_time, sync_disabled, sync_disabled_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-				params: [syncTarget, itemType, itemId, itemLocation, syncTime, remoteItemUpdatedTime, syncDisabled ? 1 : 0, `${syncDisabledReason}`],
-			},
+			compileQuery(
+				queryBuilder
+					.deleteFrom('sync_items')
+					.where((eb) =>
+						eb.and([
+							eb.and([
+								eb(sql.ref('sync_target'), '=', sql.val(syncTarget)),
+								eb(sql.ref('item_type'), '=', sql.val(itemType)),
+							]),
+							eb(sql.ref('item_id'), '=', sql.val(itemId)),
+						]),
+					),
+			),
+			compileQuery(
+				queryBuilder
+					.insertInto('sync_items')
+					.values([
+						{
+							sync_target: sql.val(syncTarget),
+							item_type: sql.val(itemType),
+							item_id: sql.val(itemId),
+							item_location: sql.val(itemLocation),
+							sync_time: sql.val(syncTime),
+							remote_item_updated_time: sql.val(remoteItemUpdatedTime),
+							sync_disabled: sql.val(syncDisabled ? 1 : 0),
+							sync_disabled_reason: sql.val(`${syncDisabledReason}`),
+						},
+					]),
+			),
 		];
 	}
 
@@ -921,16 +958,24 @@ export default class BaseItem extends BaseModel {
 	}
 
 	public static async saveSyncEnabled(itemType: ModelType, itemId: string) {
-		await this.db().exec('DELETE FROM sync_items WHERE item_type = ? AND item_id = ?', [itemType, itemId]);
+		await this.db().exec(compileQuery(
+			queryBuilder
+				.deleteFrom('sync_items')
+				.where((eb) =>
+					eb.and([
+						eb(sql.ref('item_type'), '=', sql.val(itemType)),
+						eb(sql.ref('item_id'), '=', sql.val(itemId)),
+					]),
+				),
+		));
 	}
 
 	public static async ignoreItemSyncWarning(syncTarget: number, item: { type_?: number; id?: string }) {
 		checkObjectHasProperties(item, ['type_', 'id']);
 		const itemType = item.type_;
 		const itemId = item.id;
-		const sql = 'UPDATE sync_items SET sync_warning_ignored = ? WHERE item_id = ? AND item_type = ? AND sync_target = ?';
-		const params = [1, itemId, itemType, syncTarget];
-		await this.db().exec(sql, params);
+		await this.db().exec(queryBuilder.updateTable('sync_items').set({ sync_warning_ignored: 1 })
+			.where('item_id', '=', itemId).where('item_type', '=', itemType).where('sync_target', '=', syncTarget));
 	}
 
 	// When an item is deleted, its associated sync_items data is not immediately deleted for
@@ -944,10 +989,11 @@ export default class BaseItem extends BaseModel {
 			const className = classNames[i];
 			const ItemClass = this.getClass(className);
 
-			let selectSql = `SELECT id FROM ${ItemClass.tableName()}`;
-			if (ItemClass.modelType() === this.TYPE_NOTE) selectSql += ' WHERE is_conflict = 0';
-
-			queries.push(`DELETE FROM sync_items WHERE item_location = ${BaseItem.SYNC_ITEM_LOCATION_LOCAL} AND item_type = ${ItemClass.modelType()} AND item_id NOT IN (${selectSql})`);
+			let items = selectQuery(ItemClass.tableName(), ['id']);
+			if (ItemClass.modelType() === this.TYPE_NOTE) items = items.where('is_conflict', '=', 0);
+			queries.push(queryBuilder.deleteFrom('sync_items')
+				.where('item_location', '=', BaseItem.SYNC_ITEM_LOCATION_LOCAL)
+				.where('item_type', '=', ItemClass.modelType()).where('item_id', 'not in', items));
 		}
 
 		await this.db().transactionExecBatch(queries);
@@ -966,19 +1012,11 @@ export default class BaseItem extends BaseModel {
 			const className = classNames[i];
 			const ItemClass = this.getClass(className);
 
-			const sql = sprintf(
-				`
-				SELECT id
-				FROM %s
-				WHERE encryption_applied = 0`,
-				this.db().escapeField(ItemClass.tableName()),
-			);
-
-			const items = await ItemClass.modelSelectAll<{ id: string }>(sql);
+			const items = await ItemClass.modelSelectAll<{ id: string }>(selectQuery(ItemClass.tableName(), ['id']).where('encryption_applied', '=', 0));
 			const ids = items.map(item => item.id);
 			if (!ids.length) continue;
 
-			await this.db().exec(`UPDATE sync_items SET force_sync = 1 WHERE item_id IN (${this.escapeIdsForSql(ids)})`);
+			await this.db().exec(queryBuilder.updateTable('sync_items').set({ force_sync: 1 }).where('item_id', 'in', literalStrings(ids)));
 		}
 	}
 
@@ -1002,11 +1040,16 @@ export default class BaseItem extends BaseModel {
 	}
 
 	public static async forceSync(itemId: string) {
-		await this.db().exec('UPDATE sync_items SET force_sync = 1 WHERE item_id = ?', [itemId]);
+		await this.db().exec(compileQuery(
+			queryBuilder
+				.updateTable('sync_items')
+				.set({ force_sync: sql.val(1) })
+				.where((eb) => eb(sql.ref('item_id'), '=', sql.val(itemId))),
+		));
 	}
 
 	public static async forceSyncAll() {
-		await this.db().exec('UPDATE sync_items SET force_sync = 1');
+		await this.db().exec(compileQuery(queryBuilder.updateTable('sync_items').set({ 'force_sync': sql.val(1) })));
 	}
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- save() accepts any BaseItemEntity subclass plus disable-readonly options; subclasses override with stricter per-entity types

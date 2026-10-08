@@ -1,7 +1,14 @@
+import { compileQuery, queryBuilder, sql } from '../queryBuilder';
 import { SqlQuery } from '../types';
 
 export default (): (SqlQuery|string)[] => {
 	return [
-		'ALTER TABLE sync_items ADD COLUMN sync_warning_ignored INT NOT NULL DEFAULT "0"',
+		compileQuery(
+			queryBuilder.schema
+				.alterTable('sync_items')
+				.addColumn('sync_warning_ignored', sql.raw('INT'), (column) =>
+					column.notNull().defaultTo(sql.raw('"0"')),
+				),
+		),
 	];
 };

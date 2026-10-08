@@ -1,3 +1,4 @@
+import { compileQuery, queryBuilder, sql } from '../services/database/queryBuilder';
 import Resource from '../models/Resource';
 import Setting from '../models/Setting';
 import shim from '../shim';
@@ -20,7 +21,12 @@ script.exec = async () => {
 		const resourceId = Resource.pathToId(stat.path);
 		if (!resourceId) continue;
 
-		queries.push({ sql: 'UPDATE resources SET `size` = ? WHERE id = ?', params: [stat.size, resourceId] });
+		queries.push(compileQuery(
+			queryBuilder
+				.updateTable('resources')
+				.set({ size: sql.val(stat.size) })
+				.where((eb) => eb(sql.ref('id'), '=', sql.val(resourceId))),
+		));
 
 		if (queries.length >= 1000) {
 			await reg.db().transactionExecBatch(queries);

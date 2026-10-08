@@ -1,3 +1,4 @@
+import { compileQuery, queryBuilder, sql } from '../queryBuilder';
 import { SqlQuery } from '../types';
 
 // Recreate conflict_note_states with a numeric auto-increment primary key, to
@@ -8,15 +9,19 @@ import { SqlQuery } from '../types';
 
 export default (): (SqlQuery|string)[] => {
 	return [
-		'DROP TABLE IF EXISTS conflict_note_states',
-		`CREATE TABLE conflict_note_states (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			note_id TEXT NOT NULL UNIQUE,
-			base_body TEXT NOT NULL DEFAULT "",
-			base_title TEXT NOT NULL DEFAULT "",
-			remote_body TEXT NOT NULL DEFAULT "",
-			remote_title TEXT NOT NULL DEFAULT "",
-			remote_updated_time INT NOT NULL DEFAULT 0
-		)`,
+		compileQuery(queryBuilder.schema.dropTable('conflict_note_states').ifExists()).sql,
+		compileQuery(
+			queryBuilder.schema
+				.createTable('conflict_note_states')
+				.addColumn('id', sql.raw('INTEGER'), (column) => column.primaryKey().autoIncrement())
+				.addColumn('note_id', sql.raw('TEXT'), (column) => column.notNull().unique())
+				.addColumn('base_body', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+				.addColumn('base_title', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+				.addColumn('remote_body', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+				.addColumn('remote_title', sql.raw('TEXT'), (column) => column.notNull().defaultTo(sql.raw('""')))
+				.addColumn('remote_updated_time', sql.raw('INT'), (column) =>
+					column.notNull().defaultTo(sql.raw('0')),
+				),
+		),
 	];
 };

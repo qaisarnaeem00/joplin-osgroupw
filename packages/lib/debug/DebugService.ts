@@ -1,3 +1,4 @@
+import { compileQuery, queryBuilder } from '../services/database/queryBuilder';
 import JoplinDatabase from '../JoplinDatabase';
 import Setting from '../models/Setting';
 import SyncTargetJoplinServer from '../SyncTargetJoplinServer';
@@ -24,13 +25,13 @@ export default class DebugService {
 
 		const queries = [];
 		for (const n of tableNames) {
-			queries.push(`DELETE FROM ${n}`);
-			queries.push(`DELETE FROM sqlite_sequence WHERE name="${n}"`); // Reset autoincremented IDs
+			queries.push(compileQuery(queryBuilder.deleteFrom(n)));
+			queries.push(compileQuery(queryBuilder.deleteFrom('sqlite_sequence').where('name', '=', n))); // Reset autoincremented IDs
 		}
 
 		for (let i = 0; i < 20; i++) {
-			queries.push(`DELETE FROM settings WHERE key="sync.${i}.context"`);
-			queries.push(`DELETE FROM settings WHERE key="sync.${i}.auth"`);
+			queries.push(compileQuery(queryBuilder.deleteFrom('settings').where('key', '=', `sync.${i}.context`)));
+			queries.push(compileQuery(queryBuilder.deleteFrom('settings').where('key', '=', `sync.${i}.auth`)));
 		}
 
 		await this.db.transactionExecBatch(queries);

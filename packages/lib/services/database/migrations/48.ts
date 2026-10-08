@@ -1,7 +1,12 @@
+import { compileQuery, queryBuilder, sql } from '../queryBuilder';
 import { SqlQuery } from '../types';
 
 export default (): (SqlQuery|string)[] => {
 	return [
-		'ALTER TABLE `resources` ADD COLUMN `ocr_driver_id` INT NOT NULL DEFAULT "1"',
+		compileQuery(
+			queryBuilder.schema
+				.alterTable('resources')
+				.addColumn('ocr_driver_id', sql.raw('INT'), (column) => column.notNull().defaultTo(sql.raw('"1"'))),
+		),
 	];
 };

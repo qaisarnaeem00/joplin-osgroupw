@@ -1,3 +1,4 @@
+import { compileQuery, queryBuilder, sql, selectQuery, literalStrings } from '../services/database/queryBuilder';
 import { TagEntity, TagsWithNoteCountEntity } from '../services/database/types';
 
 import BaseModel, { DeleteOptions, SearchOptions } from '../BaseModel';
@@ -18,12 +19,20 @@ export default class Tag extends BaseItem {
 	}
 
 	public static async noteIds(tagId: string) {
-		const rows = await this.db().selectAll(`
-			SELECT note_id
-			FROM note_tags
-			LEFT JOIN notes ON notes.id = note_tags.note_id
-			WHERE tag_id = ? AND notes.deleted_time = 0
-		`, [tagId]);
+		const rows = await this.db().selectAll(compileQuery(
+			queryBuilder
+				.selectFrom('note_tags')
+				.leftJoin('notes', (join) =>
+					join.on((eb) => eb(sql.ref('notes.id'), '=', sql.ref('note_tags.note_id'))),
+				)
+				.select(['note_id'])
+				.where((eb) =>
+					eb.and([
+						eb(sql.ref('tag_id'), '=', sql.val(tagId)),
+						eb(sql.ref('notes.deleted_time'), '=', sql.val(0)),
+					]),
+				),
+		));
 		const output = [];
 		for (let i = 0; i < rows.length; i++) {
 			output.push(rows[i].note_id);
@@ -45,7 +54,12 @@ export default class Tag extends BaseItem {
 
 	// Untag all the notes and delete tag
 	public static async untagAll(tagId: string) {
-		const noteTags = await NoteTag.modelSelectAll('SELECT id FROM note_tags WHERE tag_id = ?', [tagId]);
+		const noteTags = await NoteTag.modelSelectAll(compileQuery(
+			queryBuilder
+				.selectFrom('note_tags')
+				.select(['id'])
+				.where((eb) => eb(sql.ref('tag_id'), '=', sql.val(tagId))),
+		));
 		for (let i = 0; i < noteTags.length; i++) {
 			await NoteTag.delete(noteTags[i].id, { sourceDescription: 'untagAll/disassociate note' });
 		}
@@ -106,7 +120,17 @@ export default class Tag extends BaseItem {
 
 		const actionLogger = ActionLogger.from(`Tag/removeNote - tag: ${tag.title}`);
 
-		const noteTags = await NoteTag.modelSelectAll('SELECT id FROM note_tags WHERE tag_id = ? and note_id = ?', [tagId, noteId]);
+		const noteTags = await NoteTag.modelSelectAll(compileQuery(
+			queryBuilder
+				.selectFrom('note_tags')
+				.select(['id'])
+				.where((eb) =>
+					eb.and([
+						eb(sql.ref('tag_id'), '=', sql.val(tagId)),
+						eb(sql.ref('note_id'), '=', sql.val(noteId)),
+					]),
+				),
+		));
 		for (let i = 0; i < noteTags.length; i++) {
 			await NoteTag.delete(noteTags[i].id, { sourceDescription: actionLogger.clone() });
 		}
@@ -119,29 +143,40 @@ export default class Tag extends BaseItem {
 	}
 
 	public static loadWithCount(tagId: string) {
-		const sql = 'SELECT * FROM tags_with_note_count WHERE id = ?';
-		return this.modelSelectOne(sql, [tagId]);
+		return this.modelSelectOne(selectQuery('tags_with_note_count').where('id', '=', tagId));
 	}
 
 	public static async hasNote(tagId: string, noteId: string) {
-		const r = await this.db().selectOne(`
-			SELECT note_id
-			FROM note_tags
-			LEFT JOIN notes ON notes.id = note_tags.note_id
-			WHERE tag_id = ? AND note_id = ? AND deleted_time = 0
-			LIMIT 1
-		`, [tagId, noteId]);
+		const r = await this.db().selectOne(compileQuery(
+			queryBuilder
+				.selectFrom('note_tags')
+				.leftJoin('notes', (join) =>
+					join.on((eb) => eb(sql.ref('notes.id'), '=', sql.ref('note_tags.note_id'))),
+				)
+				.select(['note_id'])
+				.where((eb) =>
+					eb.and([
+						eb.and([
+							eb(sql.ref('tag_id'), '=', sql.val(tagId)),
+							eb(sql.ref('note_id'), '=', sql.val(noteId)),
+						]),
+						eb(sql.ref('deleted_time'), '=', sql.val(0)),
+					]),
+				)
+				.limit(1),
+		));
 		return !!r;
 	}
 
 	public static async allWithNotes(): Promise<TagsWithNoteCountEntity[]> {
-		return await Tag.modelSelectAll('SELECT * FROM tags_with_note_count');
+		return await Tag.modelSelectAll(compileQuery(queryBuilder.selectFrom('tags_with_note_count').selectAll()));
 	}
 
 	public static async searchAllWithNotes(options: SearchOptions) {
 		if (!options) options = {};
 		if (!options.conditions) options.conditions = [];
-		options.conditions.push('id IN (SELECT distinct id FROM tags_with_note_count)');
+		const ids = compileQuery(queryBuilder.selectFrom('tags_with_note_count').select('id').distinct());
+		options.conditions.push(`id IN (${ids.sql})`);
 		return this.search(options);
 	}
 
@@ -152,7 +187,7 @@ export default class Tag extends BaseItem {
 
 		const tagIds = await NoteTag.tagIdsByNoteId(noteId);
 		if (!tagIds.length) return [];
-		return this.modelSelectAll(`SELECT ${options.fields ? this.db().escapeFields(options.fields) : '*'} FROM tags WHERE id IN (${this.escapeIdsForSql(tagIds)})`);
+		return this.modelSelectAll(selectQuery('tags', options.fields ?? '*').where('id', 'in', literalStrings(tagIds)));
 	}
 
 	public static async commonTagsByNoteIds(noteIds: string[]) {
@@ -167,7 +202,7 @@ export default class Tag extends BaseItem {
 				break;
 			}
 		}
-		return this.modelSelectAll(`SELECT * FROM tags WHERE id IN (${this.escapeIdsForSql(commonTagIds)})`);
+		return this.modelSelectAll(selectQuery('tags').where('id', 'in', literalStrings(commonTagIds)));
 	}
 
 	public static async loadByTitle(title: string): Promise<TagEntity | null> {
@@ -178,11 +213,11 @@ export default class Tag extends BaseItem {
 		// We use a manual query here instead of loadByField to ensure deterministic ordering (ORDER BY created_time ASC)
 		// when visually similar tags exist in the database.
 		// We use created_time instead of id because IDs are UUIDs and cannot be meaningfully ordered.
-		const tag = await this.modelSelectOne(`SELECT * FROM ${this.tableName()} WHERE title = ? COLLATE NOCASE ORDER BY created_time ASC`, [trimmedTitle]);
+		const tag = await this.modelSelectOne(selectQuery(this.tableName()).where('title', '=', sql`${trimmedTitle} COLLATE NOCASE`).orderBy('created_time', 'asc'));
 		if (tag) return tag;
 
 		if (normalizedTitle !== trimmedTitle) {
-			return await this.modelSelectOne(`SELECT * FROM ${this.tableName()} WHERE title = ? COLLATE NOCASE ORDER BY created_time ASC`, [normalizedTitle]);
+			return await this.modelSelectOne(selectQuery(this.tableName()).where('title', '=', sql`${normalizedTitle} COLLATE NOCASE`).orderBy('created_time', 'asc'));
 		}
 
 		return null;
