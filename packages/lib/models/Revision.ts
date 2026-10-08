@@ -1,3 +1,4 @@
+import { literalList, queryBuilder as qb, compileQuery, sql } from '../services/database/kysely';
 import BaseModel, { DeleteOptions, ModelType } from '../BaseModel';
 import { RevisionEntity, StringOrSqlQuery } from '../services/database/types';
 import BaseItem from './BaseItem';
@@ -197,22 +198,66 @@ export default class Revision extends BaseItem {
 	}
 
 	public static async countRevisions(itemType: ModelType, itemId: string) {
-		const r = await this.db().selectOne('SELECT count(*) as total FROM revisions WHERE item_type = ? AND item_id = ?', [itemType, itemId]);
+		const r = await this.db().selectOne(compileQuery(
+			qb
+				.selectFrom('revisions')
+				.select(eb => [eb.fn('count', [sql`*`]).as('total')])
+				.where(eb =>
+					eb.and([
+						eb(eb.ref('item_type'), '=', eb.val(itemType)),
+						eb(eb.ref('item_id'), '=', eb.val(itemId)),
+					]),
+				),
+		));
 
 		return r ? r.total : 0;
 	}
 
 	public static latestRevision(itemType: ModelType, itemId: string) {
-		return this.modelSelectOne('SELECT * FROM revisions WHERE item_type = ? AND item_id = ? ORDER BY item_updated_time DESC LIMIT 1', [itemType, itemId]);
+		return this.modelSelectOne(compileQuery(
+			qb
+				.selectFrom('revisions')
+				.selectAll()
+				.where(eb =>
+					eb.and([
+						eb(eb.ref('item_type'), '=', eb.val(itemType)),
+						eb(eb.ref('item_id'), '=', eb.val(itemId)),
+					]),
+				)
+				.orderBy(eb => eb.ref('item_updated_time'), 'desc')
+				.limit(1),
+		));
 	}
 
 	public static allByType(itemType: ModelType, itemId: string) {
-		return this.modelSelectAll('SELECT * FROM revisions WHERE item_type = ? AND item_id = ? ORDER BY item_updated_time ASC', [itemType, itemId]);
+		return this.modelSelectAll(compileQuery(
+			qb
+				.selectFrom('revisions')
+				.selectAll()
+				.where(eb =>
+					eb.and([
+						eb(eb.ref('item_type'), '=', eb.val(itemType)),
+						eb(eb.ref('item_id'), '=', eb.val(itemId)),
+					]),
+				)
+				.orderBy(eb => eb.ref('item_updated_time'), 'asc'),
+		));
 	}
 
 	public static async itemsWithRevisions(itemType: ModelType, itemIds: string[]) {
 		if (!itemIds.length) return [];
-		const rows = await this.db().selectAll(`SELECT distinct item_id FROM revisions WHERE item_type = ? AND item_id IN (${this.escapeIdsForSql(itemIds)})`, [itemType]);
+		const rows = await this.db().selectAll(compileQuery(
+			qb
+				.selectFrom('revisions')
+				.select(['item_id'])
+				.distinct()
+				.where(eb =>
+					eb.and([
+						eb(eb.ref('item_type'), '=', eb.val(itemType)),
+						eb(eb.ref('item_id'), 'in', literalList(itemIds)),
+					]),
+				),
+		));
 
 		return rows.map((r: RevisionEntity) => r.item_id);
 	}
@@ -253,7 +298,21 @@ export default class Revision extends BaseItem {
 		if (!('encryption_applied' in revision) || !!revision.encryption_applied) throw new JoplinError('Target revision is encrypted', 'revision_encrypted');
 
 		if (!revs) {
-			revs = await this.modelSelectAll('SELECT * FROM revisions WHERE item_type = ? AND item_id = ? AND item_updated_time <= ? ORDER BY item_updated_time ASC', [revision.item_type, revision.item_id, revision.item_updated_time]);
+			revs = await this.modelSelectAll(compileQuery(
+				qb
+					.selectFrom('revisions')
+					.selectAll()
+					.where(eb =>
+						eb.and([
+							eb.and([
+								eb(eb.ref('item_type'), '=', eb.val(revision.item_type)),
+								eb(eb.ref('item_id'), '=', eb.val(revision.item_id)),
+							]),
+							eb(eb.ref('item_updated_time'), '<=', eb.val(revision.item_updated_time)),
+						]),
+					)
+					.orderBy(eb => eb.ref('item_updated_time'), 'asc'),
+			));
 		} else {
 			revs = revs.slice();
 		}
@@ -301,19 +360,33 @@ export default class Revision extends BaseItem {
 	}
 
 	private static async findAllRevisionsToKeep(itemType: ModelType, itemId: string, cutOffDate: number) {
-		return this.modelSelectAll(`
-				SELECT child.*
-				FROM revisions AS child
-				JOIN revisions AS parent
-				ON child.parent_id = parent.id
-				WHERE child.item_type = ?
-				AND child.item_id = ?
-				AND child.item_updated_time >= ?
-				AND parent.item_type = ?
-				AND parent.item_id = ?
-				AND parent.item_updated_time < ?
-				ORDER BY child.item_updated_time ASC`,
-		[itemType, itemId, cutOffDate, itemType, itemId, cutOffDate],
+		return this.modelSelectAll(compileQuery(
+			qb
+				.selectFrom('revisions as child')
+				.selectAll('child')
+				.innerJoin('revisions as parent', join =>
+					join.on(eb => eb(eb.ref('child.parent_id'), '=', eb.ref('parent.id'))),
+				)
+				.where(eb =>
+					eb.and([
+						eb.and([
+							eb.and([
+								eb.and([
+									eb.and([
+										eb(eb.ref('child.item_type'), '=', eb.val(itemType)),
+										eb(eb.ref('child.item_id'), '=', eb.val(itemId)),
+									]),
+									eb(eb.ref('child.item_updated_time'), '>=', eb.val(cutOffDate)),
+								]),
+								eb(eb.ref('parent.item_type'), '=', eb.val(itemType)),
+							]),
+							eb(eb.ref('parent.item_id'), '=', eb.val(itemId)),
+						]),
+						eb(eb.ref('parent.item_updated_time'), '<', eb.val(cutOffDate)),
+					]),
+				)
+				.orderBy(eb => eb.ref('child.item_updated_time'), 'asc'),
+		),
 		);
 	}
 
@@ -325,8 +398,13 @@ export default class Revision extends BaseItem {
 
 		const cutOffDate = Date.now() - ttl;
 		const allOldRevisions: RevisionEntity[] = await this.modelSelectAll(
-			'SELECT * FROM revisions WHERE item_updated_time < ? ORDER BY item_updated_time ASC',
-			[cutOffDate],
+			compileQuery(
+				qb
+					.selectFrom('revisions')
+					.selectAll()
+					.where(eb => eb(eb.ref('item_updated_time'), '<', eb.val(cutOffDate)))
+					.orderBy(eb => eb.ref('item_updated_time'), 'asc'),
+			),
 		);
 
 		const itemIdToOldRevisions = new Map<string, RevisionEntity[]>();
@@ -340,14 +418,40 @@ export default class Revision extends BaseItem {
 
 		const deleteOldRevisionsForItem = async (itemType: ModelType, itemId: string, oldRevisions: RevisionEntity[]) => {
 			const firstKeptRev = await this.modelSelectOne(
-				'SELECT * FROM revisions WHERE item_updated_time >= ? AND item_type = ? AND item_id = ? ORDER BY item_updated_time ASC LIMIT 1',
-				[cutOffDate, itemType, itemId],
+				compileQuery(
+					qb
+						.selectFrom('revisions')
+						.selectAll()
+						.where(eb =>
+							eb.and([
+								eb.and([
+									eb(eb.ref('item_updated_time'), '>=', eb.val(cutOffDate)),
+									eb(eb.ref('item_type'), '=', eb.val(itemType)),
+								]),
+								eb(eb.ref('item_id'), '=', eb.val(itemId)),
+							]),
+						)
+						.orderBy(eb => eb.ref('item_updated_time'), 'asc')
+						.limit(1),
+				),
 			);
 			const queries: StringOrSqlQuery[] = [];
 			if (!firstKeptRev) {
 				const hasEncrypted = await this.modelSelectOne(
-					'SELECT * FROM revisions WHERE encryption_applied = 1 AND item_updated_time < ? AND item_id = ?',
-					[cutOffDate, itemId],
+					compileQuery(
+						qb
+							.selectFrom('revisions')
+							.selectAll()
+							.where(eb =>
+								eb.and([
+									eb.and([
+										eb(eb.ref('encryption_applied'), '=', eb.val(1)),
+										eb(eb.ref('item_updated_time'), '<', eb.val(cutOffDate)),
+									]),
+									eb(eb.ref('item_id'), '=', eb.val(itemId)),
+								]),
+							),
+					),
 				);
 				if (hasEncrypted) {
 					throw new JoplinError('One of the revision to be deleted is encrypted', 'revision_encrypted');
@@ -364,10 +468,18 @@ export default class Revision extends BaseItem {
 					const titleDiff = this.createTextPatch('', merged.title);
 					const bodyDiff = this.createTextPatch('', merged.body);
 					const metadataDiff = this.createObjectPatch({}, merged.metadata);
-					queries.push({
-						sql: 'UPDATE revisions SET title_diff = ?, body_diff = ?, metadata_diff = ?, updated_time = ?, parent_id = ? WHERE id = ?',
-						params: [titleDiff, bodyDiff, metadataDiff, time.unixMs(), '', keptRev.id],
-					});
+					queries.push(compileQuery(
+						qb
+							.updateTable('revisions')
+							.set(eb => ({
+								title_diff: eb.val(titleDiff),
+								body_diff: eb.val(bodyDiff),
+								metadata_diff: eb.val(metadataDiff),
+								updated_time: eb.val(time.unixMs()),
+								parent_id: eb.val(''),
+							}))
+							.where(eb => eb(eb.ref('id'), '=', eb.val(keptRev.id))),
+					));
 				}
 			}
 
@@ -400,8 +512,18 @@ export default class Revision extends BaseItem {
 		const ids = Array.isArray(noteIds) ? noteIds : [noteIds];
 
 		const revisions: RevisionEntity[] = await this.modelSelectAll(
-			`SELECT id FROM revisions WHERE item_type = ? AND item_id in (${this.escapeIdsForSql(ids)}) ORDER BY item_updated_time DESC`,
-			[ModelType.Note],
+			compileQuery(
+				qb
+					.selectFrom('revisions')
+					.select(['id'])
+					.where(eb =>
+						eb.and([
+							eb(eb.ref('item_type'), '=', eb.val(ModelType.Note)),
+							eb(eb.ref('item_id'), 'in', literalList(ids)),
+						]),
+					)
+					.orderBy(eb => eb.ref('item_updated_time'), 'desc'),
+			),
 		);
 
 		await this.batchDelete(revisions.map(item => item.id), options);
@@ -412,8 +534,21 @@ export default class Revision extends BaseItem {
 		const ids = Array.isArray(noteIds) ? noteIds : [noteIds];
 
 		const revisions: RevisionEntity[] = await this.modelSelectAll(
-			`SELECT id FROM revisions WHERE item_type = ? AND item_id in (${this.escapeIdsForSql(ids)}) AND is_locked = 0 ORDER BY item_updated_time DESC`,
-			[ModelType.Note],
+			compileQuery(
+				qb
+					.selectFrom('revisions')
+					.select(['id'])
+					.where(eb =>
+						eb.and([
+							eb.and([
+								eb(eb.ref('item_type'), '=', eb.val(ModelType.Note)),
+								eb(eb.ref('item_id'), 'in', literalList(ids)),
+							]),
+							eb(eb.ref('is_locked'), '=', eb.val(0)),
+						]),
+					)
+					.orderBy(eb => eb.ref('item_updated_time'), 'desc'),
+			),
 		);
 
 		await this.batchDelete(revisions.map(item => item.id), options);

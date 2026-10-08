@@ -1,7 +1,12 @@
+import { queryBuilder as qb, compileQuery, sql } from '../kysely';
+import { sqliteStringDefault } from '../sqlite';
 import { SqlQuery } from '../types';
 
-export default (): (SqlQuery|string)[] => {
-	return [
-		'ALTER TABLE `resources` ADD COLUMN `ocr_driver_id` INT NOT NULL DEFAULT "1"',
-	];
-};
+// Preserve the original version 48 schema and data changes.
+export default (): SqlQuery[] => [
+	compileQuery(
+		qb.schema
+			.alterTable('resources')
+			.addColumn('ocr_driver_id', sql.raw('INT'), c => c.notNull().defaultTo(sqliteStringDefault('1'))),
+	),
+];

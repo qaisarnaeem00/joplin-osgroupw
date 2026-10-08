@@ -1,3 +1,4 @@
+import { literalList, queryBuilder as qb, compileQuery, sql } from '../database/kysely';
 import Logger from '@joplin/utils/Logger';
 import ItemChange from '../../models/ItemChange';
 import Setting from '../../models/Setting';
@@ -133,29 +134,76 @@ export default class SearchEngine {
 	}
 
 	private async doInitialNoteIndexing_() {
-		const notes = await this.db().selectAll<NoteEntity>('SELECT id FROM notes WHERE is_conflict = 0 AND encryption_applied = 0 AND is_locked = 0 AND deleted_time = 0');
+		const notes = await this.db().selectAll<NoteEntity>(compileQuery(
+			qb
+				.selectFrom('notes')
+				.select(['id'])
+				.where(eb =>
+					eb.and([
+						eb.and([
+							eb.and([
+								eb(eb.ref('is_conflict'), '=', eb.val(0)),
+								eb(eb.ref('encryption_applied'), '=', eb.val(0)),
+							]),
+							eb(eb.ref('is_locked'), '=', eb.val(0)),
+						]),
+						eb(eb.ref('deleted_time'), '=', eb.val(0)),
+					]),
+				),
+		));
 		const noteIds = notes.map(n => n.id);
 
 		const lastChangeId = await ItemChange.lastChangeId();
 
 		// First delete content of note_normalized, in case the previous initial indexing failed
-		await this.db().exec('DELETE FROM notes_normalized');
+		await this.db().exec(compileQuery(qb.deleteFrom('notes_normalized')));
 
 		while (noteIds.length) {
 			const currentIds = noteIds.splice(0, 100);
-			const notes = await Note.modelSelectAll(`
-				SELECT ${SearchEngine.relevantFields}
-				FROM notes
-				WHERE id IN (${BaseModel.escapeIdsForSql(currentIds)}) AND is_conflict = 0 AND encryption_applied = 0 AND is_locked = 0 AND deleted_time = 0`);
+			const notes = await Note.modelSelectAll(compileQuery(
+				qb
+					.selectFrom('notes')
+					.select(SearchEngine.relevantFields.split(',').map(field => field.trim()))
+					.where(eb =>
+						eb.and([
+							eb.and([
+								eb.and([
+									eb.and([
+										eb(eb.ref('id'), 'in', literalList(currentIds)),
+										eb(eb.ref('is_conflict'), '=', eb.val(0)),
+									]),
+									eb(eb.ref('encryption_applied'), '=', eb.val(0)),
+								]),
+								eb(eb.ref('is_locked'), '=', eb.val(0)),
+							]),
+							eb(eb.ref('deleted_time'), '=', eb.val(0)),
+						]),
+					),
+			));
 			const queries = [];
 
 			for (let i = 0; i < notes.length; i++) {
 				const note = notes[i];
 				const n = this.normalizeNote_(note);
-				queries.push({ sql: `
-				INSERT INTO notes_normalized(${SearchEngine.relevantFields})
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				params: [n.id, n.title, n.body, n.user_created_time, n.user_updated_time, n.is_todo, n.todo_completed, n.todo_due, n.parent_id, n.latitude, n.longitude, n.altitude, n.source_url] },
+				queries.push(compileQuery(
+					qb
+						.insertInto('notes_normalized')
+						.values({
+							id: n.id,
+							title: n.title,
+							body: n.body,
+							user_created_time: n.user_created_time,
+							user_updated_time: n.user_updated_time,
+							is_todo: n.is_todo,
+							todo_completed: n.todo_completed,
+							todo_due: n.todo_due,
+							parent_id: n.parent_id,
+							latitude: n.latitude,
+							longitude: n.longitude,
+							altitude: n.altitude,
+							source_url: n.source_url,
+						}),
+				),
 				);
 			}
 
@@ -213,15 +261,19 @@ export default class SearchEngine {
 		try {
 			while (true) {
 				const changes: ItemChangeEntity[] = await ItemChange.modelSelectAll(
-					`
-					SELECT id, item_id, type
-					FROM item_changes
-					WHERE item_type = ?
-					AND id > ?
-					ORDER BY id ASC
-					LIMIT 10
-				`,
-					[BaseModel.TYPE_NOTE, lastChangeId],
+					compileQuery(
+						qb
+							.selectFrom('item_changes')
+							.select(['id', 'item_id', 'type'])
+							.where(eb =>
+								eb.and([
+									eb(eb.ref('item_type'), '=', eb.val(BaseModel.TYPE_NOTE)),
+									eb(eb.ref('id'), '>', eb.val(lastChangeId)),
+								]),
+							)
+							.orderBy(eb => eb.ref('id'), 'asc')
+							.limit(10),
+					),
 				);
 
 				if (!changes.length) break;
@@ -229,27 +281,59 @@ export default class SearchEngine {
 				const queries = [];
 
 				const noteIds = changes.map(a => a.item_id);
-				const notes = await Note.modelSelectAll(`
-					SELECT ${SearchEngine.relevantFields}
-					FROM notes WHERE id IN (${Note.escapeIdsForSql(noteIds)}) AND is_conflict = 0 AND encryption_applied = 0 AND is_locked = 0 AND deleted_time = 0`,
+				const notes = await Note.modelSelectAll(compileQuery(
+					qb
+						.selectFrom('notes')
+						.select(SearchEngine.relevantFields.split(',').map(field => field.trim()))
+						.where(eb =>
+							eb.and([
+								eb.and([
+									eb.and([
+										eb.and([
+											eb(eb.ref('id'), 'in', literalList(noteIds)),
+											eb(eb.ref('is_conflict'), '=', eb.val(0)),
+										]),
+										eb(eb.ref('encryption_applied'), '=', eb.val(0)),
+									]),
+									eb(eb.ref('is_locked'), '=', eb.val(0)),
+								]),
+								eb(eb.ref('deleted_time'), '=', eb.val(0)),
+							]),
+						),
+				),
 				);
 
 				for (let i = 0; i < changes.length; i++) {
 					const change = changes[i];
 
 					if (change.type === ItemChange.TYPE_CREATE || change.type === ItemChange.TYPE_UPDATE) {
-						queries.push({ sql: 'DELETE FROM notes_normalized WHERE id = ?', params: [change.item_id] });
+						queries.push(compileQuery(qb.deleteFrom('notes_normalized').where(eb => eb(eb.ref('id'), '=', eb.val(change.item_id)))));
 						const note = this.noteById_(notes, change.item_id);
 						if (note) {
 							const n = this.normalizeNote_(note);
-							queries.push({ sql: `
-							INSERT INTO notes_normalized(${SearchEngine.relevantFields})
-							VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-							params: [change.item_id, n.title, n.body, n.user_created_time, n.user_updated_time, n.is_todo, n.todo_completed, n.todo_due, n.parent_id, n.latitude, n.longitude, n.altitude, n.source_url] });
+							queries.push(compileQuery(
+								qb
+									.insertInto('notes_normalized')
+									.values({
+										id: change.item_id,
+										title: n.title,
+										body: n.body,
+										user_created_time: n.user_created_time,
+										user_updated_time: n.user_updated_time,
+										is_todo: n.is_todo,
+										todo_completed: n.todo_completed,
+										todo_due: n.todo_due,
+										parent_id: n.parent_id,
+										latitude: n.latitude,
+										longitude: n.longitude,
+										altitude: n.altitude,
+										source_url: n.source_url,
+									}),
+							));
 							report.inserted++;
 						}
 					} else if (change.type === ItemChange.TYPE_DELETE) {
-						queries.push({ sql: 'DELETE FROM notes_normalized WHERE id = ?', params: [change.item_id] });
+						queries.push(compileQuery(qb.deleteFrom('notes_normalized').where(eb => eb(eb.ref('id'), '=', eb.val(change.item_id)))));
 						report.deleted++;
 					} else {
 						throw new Error(`Invalid change type: ${change.type}`);
@@ -293,26 +377,28 @@ export default class SearchEngine {
 				const queries: SqlQuery[] = [];
 
 				for (const resource of resources) {
-					queries.push({
-						sql: 'DELETE FROM items_normalized WHERE item_id = ? AND item_type = ?',
-						params: [
-							resource.id,
-							ModelType.Resource,
-						],
-					});
+					queries.push(compileQuery(
+						qb
+							.deleteFrom('items_normalized')
+							.where(eb =>
+								eb.and([
+									eb(eb.ref('item_id'), '=', eb.val(resource.id)),
+									eb(eb.ref('item_type'), '=', eb.val(ModelType.Resource)),
+								]),
+							),
+					));
 
-					queries.push({
-						sql: `
-							INSERT INTO items_normalized(item_id, item_type, title, body, user_updated_time)
-							VALUES (?, ?, ?, ?, ?)`,
-						params: [
-							resource.id,
-							ModelType.Resource,
-							this.normalizeText_(resource.title),
-							this.normalizeText_(resource.ocr_text),
-							resource.updated_time,
-						],
-					});
+					queries.push(compileQuery(
+						qb
+							.insertInto('items_normalized')
+							.values(eb => ({
+								item_id: eb.val(resource.id),
+								item_type: eb.val(ModelType.Resource),
+								title: eb.val(this.normalizeText_(resource.title)),
+								body: eb.val(this.normalizeText_(resource.ocr_text)),
+								user_updated_time: eb.val(resource.updated_time),
+							})),
+					));
 
 					report.inserted++;
 
@@ -344,7 +430,7 @@ export default class SearchEngine {
 	}
 
 	public async countRows() {
-		const sql = 'SELECT count(*) as total FROM notes_fts';
+		const sql = compileQuery(qb.selectFrom('notes_fts').select(eb => eb.fn.countAll().as('total')));
 		const row = await this.db().selectOne(sql);
 		return row && row['total'] ? row['total'] : 0;
 	}
@@ -805,18 +891,25 @@ export default class SearchEngine {
 					let itemRows: ProcessResultsRow[] = [];
 
 					try {
-						itemRows = await this.db().selectAll<ProcessResultsRow>(`
-							SELECT
-								id,
-								title,
-								user_updated_time,
-								offsets(items_fts) AS offsets,
-								matchinfo(items_fts, 'pcnalx') AS matchinfo,
-								item_id,
-								item_type
-							FROM items_fts
-							WHERE title MATCH ? OR body MATCH ?
-						`, [toSearch, toSearch]);
+						itemRows = await this.db().selectAll<ProcessResultsRow>(compileQuery(
+							qb
+								.selectFrom('items_fts')
+								.select(eb => [
+									'id',
+									'title',
+									'user_updated_time',
+									eb.fn('offsets', [eb.ref('items_fts')]).as('offsets'),
+									eb.fn('matchinfo', [eb.ref('items_fts'), eb.val('pcnalx')]).as('matchinfo'),
+									'item_id',
+									'item_type',
+								])
+								.where(eb =>
+									eb.or([
+										sql<boolean>`${eb.ref('title')} MATCH ${eb.val(toSearch)}`,
+										sql<boolean>`${eb.ref('body')} MATCH ${eb.val(toSearch)}`,
+									]),
+								),
+						));
 					} catch (error) {
 						// Android <= 25 doesn't support the following syntax:
 						//    WHERE title MATCH ? OR body MATCH ?

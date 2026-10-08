@@ -1,3 +1,4 @@
+import { literalList, queryBuilder as qb, compileQuery } from './database/kysely';
 import NoteResource from '../models/NoteResource';
 import BaseModel from '../BaseModel';
 import BaseService from './BaseService';
@@ -43,20 +44,30 @@ export default class ResourceService extends BaseService {
 			let foundNoteWithEncryption = false;
 
 			while (true) {
-				const changes: ItemChangeEntity[] = await ItemChange.modelSelectAll(`
-					SELECT id, item_id, type
-					FROM item_changes
-					WHERE item_type = ?
-					AND id > ?
-					ORDER BY id ASC
-					LIMIT 10
-					`, [BaseModel.TYPE_NOTE, Setting.value('resourceService.lastProcessedChangeId')],
+				const changes: ItemChangeEntity[] = await ItemChange.modelSelectAll(compileQuery(
+					qb
+						.selectFrom('item_changes')
+						.select(['id', 'item_id', 'type'])
+						.where(eb =>
+							eb.and([
+								eb(eb.ref('item_type'), '=', eb.val(BaseModel.TYPE_NOTE)),
+								eb(eb.ref('id'), '>', eb.val(Setting.value('resourceService.lastProcessedChangeId'))),
+							]),
+						)
+						.orderBy(eb => eb.ref('id'), 'asc')
+						.limit(10),
+				),
 				);
 
 				if (!changes.length) break;
 
 				const noteIds = changes.map(a => a.item_id);
-				const notes = await Note.modelSelectAll(`SELECT id, title, body, encryption_applied, is_locked, extracted_resource_ids FROM notes WHERE id IN (${Note.escapeIdsForSql(noteIds)})`);
+				const notes = await Note.modelSelectAll(compileQuery(
+					qb
+						.selectFrom('notes')
+						.select(['id', 'title', 'body', 'encryption_applied', 'is_locked', 'extracted_resource_ids'])
+						.where(eb => eb(eb.ref('id'), 'in', literalList(noteIds))),
+				));
 
 				const noteById = (noteId: string) => {
 					for (let i = 0; i < notes.length; i++) {

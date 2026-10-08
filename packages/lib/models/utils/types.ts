@@ -23,6 +23,7 @@ export interface LoadOptions {
 	caseInsensitive?: boolean;
 	fields?: string | string[];
 	where?: string;
+	expression?: import('kysely').Expression<import('kysely').SqlBool>;
 	whereParams?: (string | number | boolean)[];
 	order?: {
 		by: string;

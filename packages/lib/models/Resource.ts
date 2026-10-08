@@ -1,3 +1,4 @@
+import { literalList, queryBuilder as qb, compileQuery, selectColumns, sql, eb } from '../services/database/kysely';
 import BaseModel, { DeleteOptions } from '../BaseModel';
 import FsDriverBase from '../fs-driver-base';
 import BaseItem from './BaseItem';
@@ -92,38 +93,54 @@ export default class Resource extends BaseItem {
 
 	public static fetchStatuses(resourceIds: string[]): Promise<{ resource_id: string; fetch_status: number }[]> {
 		if (!resourceIds.length) return Promise.resolve([]);
-		return this.db().selectAll(`SELECT resource_id, fetch_status FROM resource_local_states WHERE resource_id IN (${this.escapeIdsForSql(resourceIds)})`);
+		return this.db().selectAll(compileQuery(
+			qb
+				.selectFrom('resource_local_states')
+				.select(['resource_id', 'fetch_status'])
+				.where(eb => eb(eb.ref('resource_id'), 'in', literalList(resourceIds))),
+		));
 	}
 
 	public static sharedResourceIds(): Promise<string[]> {
-		return this.db().selectAllFields('SELECT id FROM resources WHERE is_shared = 1', [], 'id');
+		return this.db().selectAllFields(compileQuery(qb.selectFrom('resources').select(['id']).where(eb => eb(eb.ref('is_shared'), '=', eb.val(1)))), null, 'id');
 	}
 
 	public static errorFetchStatuses() {
-		return this.db().selectAll(`
-			SELECT title AS resource_title, resource_id, fetch_error
-			FROM resource_local_states
-			LEFT JOIN resources ON resources.id = resource_local_states.resource_id
-			WHERE fetch_status = ?
-		`, [Resource.FETCH_STATUS_ERROR]);
+		return this.db().selectAll(compileQuery(
+			qb
+				.selectFrom('resource_local_states')
+				.select(eb => [eb.ref('title').as('resource_title'), 'resource_id', 'fetch_error'])
+				.leftJoin('resources', join =>
+					join.on(eb => eb(eb.ref('resources.id'), '=', eb.ref('resource_local_states.resource_id'))),
+				)
+				.where(eb => eb(eb.ref('fetch_status'), '=', eb.val(Resource.FETCH_STATUS_ERROR))),
+		));
 	}
 
 	public static needToBeFetched(resourceDownloadMode: string = null, limit: number = null) {
-		const sql = ['SELECT * FROM resources WHERE encryption_applied = 0 AND id IN (SELECT resource_id FROM resource_local_states WHERE fetch_status = ?)'];
-		if (resourceDownloadMode !== 'always') {
-			sql.push('AND resources.id IN (SELECT resource_id FROM resources_to_download)');
-		}
-		sql.push('ORDER BY updated_time DESC');
-		if (limit !== null) sql.push(`LIMIT ${limit}`);
-		return this.modelSelectAll(sql.join(' '), [Resource.FETCH_STATUS_IDLE]);
+		let query = qb.selectFrom('resources').selectAll().where('encryption_applied', '=', 0)
+			.where('id', 'in', qb.selectFrom('resource_local_states').select('resource_id').where('fetch_status', '=', Resource.FETCH_STATUS_IDLE));
+		if (resourceDownloadMode !== 'always') query = query.where('resources.id', 'in', qb.selectFrom('resources_to_download').select('resource_id'));
+		query = query.orderBy('updated_time', 'desc');
+		if (limit !== null) query = query.limit(limit);
+		return this.modelSelectAll(query);
 	}
-
 	public static async resetStartedFetchStatus() {
-		return await this.db().exec('UPDATE resource_local_states SET fetch_status = ? WHERE fetch_status = ?', [Resource.FETCH_STATUS_IDLE, Resource.FETCH_STATUS_STARTED]);
+		return await this.db().exec(compileQuery(
+			qb
+				.updateTable('resource_local_states')
+				.set(eb => ({ fetch_status: eb.val(Resource.FETCH_STATUS_IDLE) }))
+				.where(eb => eb(eb.ref('fetch_status'), '=', eb.val(Resource.FETCH_STATUS_STARTED))),
+		));
 	}
 
 	public static async resetFetchErrorStatus(resourceId: string) {
-		await this.db().exec('UPDATE resource_local_states SET fetch_status = ?, fetch_error = \'\' WHERE resource_id = ?', [Resource.FETCH_STATUS_IDLE, resourceId]);
+		await this.db().exec(compileQuery(
+			qb
+				.updateTable('resource_local_states')
+				.set(eb => ({ fetch_status: eb.val(Resource.FETCH_STATUS_IDLE), fetch_error: eb.val('') }))
+				.where(eb => eb(eb.ref('resource_id'), '=', eb.val(resourceId))),
+		));
 		await this.resetOcrStatus(resourceId);
 	}
 
@@ -331,14 +348,29 @@ export default class Resource extends BaseItem {
 	}
 
 	public static async needFileSizeSet() {
-		return this.modelSelectAll('SELECT * FROM resources WHERE `size` < 0 AND encryption_blob_encrypted = 0');
+		return this.modelSelectAll(compileQuery(
+			qb
+				.selectFrom('resources')
+				.selectAll()
+				.where(eb =>
+					eb.and([
+						eb(eb.ref('size'), '<', eb.val(0)),
+						eb(eb.ref('encryption_blob_encrypted'), '=', eb.val(0)),
+					]),
+				),
+		));
 	}
 
 	// Only set the `size` field and nothing else, not even the update_time
 	// This is because it's only necessary to do it once after migration 20
 	// and each client does it so there's no need to sync the resource.
 	public static async setFileSizeOnly(resourceId: string, fileSize: number) {
-		return this.db().exec('UPDATE resources set `size` = ? WHERE id = ?', [fileSize, resourceId]);
+		return this.db().exec(compileQuery(
+			qb
+				.updateTable('resources')
+				.set(eb => ({ size: eb.val(fileSize) }))
+				.where(eb => eb(eb.ref('id'), '=', eb.val(resourceId))),
+		));
 	}
 
 	public static async batchDelete(ids: string[], options: DeleteOptions = {}) {
@@ -364,7 +396,7 @@ export default class Resource extends BaseItem {
 			});
 			await this.fsDriver().remove(path);
 			await NoteResource.deleteByResource(id); // Clean up note/resource relationships
-			await this.db().exec('DELETE FROM items_normalized WHERE item_id = ?', [id]);
+			await this.db().exec(compileQuery(qb.deleteFrom('items_normalized').where(eb => eb(eb.ref('item_id'), '=', eb.val(id)))));
 		}
 
 		await ResourceLocalState.batchDelete(ids, { sourceDescription: actionLogger });
@@ -373,43 +405,62 @@ export default class Resource extends BaseItem {
 	public static async markForDownload(resourceId: string) {
 		// Insert the row only if it's not already there
 		const t = Date.now();
-		await this.db().exec('INSERT INTO resources_to_download (resource_id, updated_time, created_time) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM resources_to_download WHERE resource_id = ?)', [resourceId, t, t, resourceId]);
+		await this.db().exec(compileQuery(
+			qb
+				.insertInto('resources_to_download')
+				.columns(['resource_id', 'updated_time', 'created_time'])
+				.expression(
+					qb
+						.selectNoFrom([])
+						.select(eb => [
+							eb.val(resourceId).as('__value_16346'),
+							eb.val(t).as('__value_16366'),
+							eb.val(t).as('__value_16377'),
+						])
+						.where(eb =>
+							eb.not(
+								eb.exists(
+									qb
+										.selectFrom('resources_to_download')
+										.select(eb => [eb.val(1).as('__value_16471')])
+										.where(eb => eb(eb.ref('resource_id'), '=', eb.val(resourceId))),
+								),
+							),
+						),
+				),
+		));
 	}
 
 	public static async downloadedButEncryptedBlobCount(excludedIds: string[] = null) {
-		let excludedSql = '';
-		if (excludedIds && excludedIds.length) {
-			excludedSql = `AND resource_id NOT IN (${this.escapeIdsForSql(excludedIds)})`;
-		}
-
-		const r = await this.db().selectOne(`
-			SELECT count(*) as total
-			FROM resource_local_states
-			WHERE fetch_status = ?
-			AND resource_id IN (SELECT id FROM resources WHERE encryption_blob_encrypted = 1)
-			${excludedSql}
-		`, [Resource.FETCH_STATUS_DONE]);
-
+		let query = qb.selectFrom('resource_local_states').select(eb => eb.fn.countAll().as('total'))
+			.where('fetch_status', '=', Resource.FETCH_STATUS_DONE)
+			.where('resource_id', 'in', qb.selectFrom('resources').select('id').where('encryption_blob_encrypted', '=', 1));
+		if (excludedIds?.length) query = query.where('resource_id', 'not in', literalList(excludedIds));
+		const r = await this.db().selectOne(query);
 		return r ? r.total : 0;
 	}
-
 	public static async downloadStatusCounts(status: number) {
-		const r = await this.db().selectOne(`
-			SELECT count(*) as total
-			FROM resource_local_states
-			WHERE fetch_status = ?
-		`, [status]);
+		const r = await this.db().selectOne(compileQuery(
+			qb
+				.selectFrom('resource_local_states')
+				.select(eb => [eb.fn('count', [sql`*`]).as('total')])
+				.where(eb => eb(eb.ref('fetch_status'), '=', eb.val(status))),
+		));
 
 		return r ? r.total : 0;
 	}
 
 	public static async createdLocallyCount() {
-		const r = await this.db().selectOne(`
-			SELECT count(*) as total
-			FROM resources
-			WHERE id NOT IN
-			(SELECT resource_id FROM resource_local_states)
-		`);
+		const r = await this.db().selectOne(compileQuery(
+			qb
+				.selectFrom('resources')
+				.select(eb => [eb.fn('count', [sql`*`]).as('total')])
+				.where(eb =>
+					eb.not(
+						eb(eb.ref('id'), 'in', qb.selectFrom('resource_local_states').select(['resource_id'])),
+					),
+				),
+		));
 
 		return r ? r.total : 0;
 	}
@@ -529,42 +580,20 @@ export default class Resource extends BaseItem {
 		}, { changeSource: ItemChange.SOURCE_SYNC });
 	}
 
-	private static baseNeedOcrQuery(selectSql: string, supportedMimeTypes: string[]): SqlQuery {
-		return {
-			sql: `
-				SELECT ${selectSql}
-				FROM resources
-				WHERE
-					(ocr_status = ? OR ocr_status = ? OR ocr_status = ?) AND
-					encryption_applied = 0 AND
-					mime IN ('${supportedMimeTypes.join('\',\'')}')
-			`,
-			params: [
-				ResourceOcrStatus.Todo,
-				ResourceOcrStatus.Processing,
-				ResourceOcrStatus.TodoAccessible,
-			],
-		};
+	private static baseNeedOcrQuery(supportedMimeTypes: string[]) {
+		return qb.selectFrom('resources')
+			.where('ocr_status', 'in', [ResourceOcrStatus.Todo, ResourceOcrStatus.Processing, ResourceOcrStatus.TodoAccessible])
+			.where('encryption_applied', '=', 0).where('mime', 'in', supportedMimeTypes.length ? supportedMimeTypes : ['']);
 	}
-
 	public static async needOcrCount(supportedMimeTypes: string[]): Promise<number> {
-		const query = this.baseNeedOcrQuery('count(*) as total', supportedMimeTypes);
-		const r = await this.db().selectOne(query.sql, query.params);
-		return r ? r['total'] : 0;
+		const r = await this.db().selectOne(this.baseNeedOcrQuery(supportedMimeTypes).select(eb => eb.fn.countAll().as('total')));
+		return r ? r.total : 0;
 	}
-
 	public static async needOcr(supportedMimeTypes: string[], skippedResourceIds: string[], limit: number, options: LoadOptions): Promise<ResourceEntity[]> {
-		const query = this.baseNeedOcrQuery(this.selectFields(options), supportedMimeTypes);
-		const skippedResourcesSql = skippedResourceIds.length ? `AND resources.id NOT IN (${this.escapeIdsForSql(skippedResourceIds)})` : '';
-
-		return await this.db().selectAll(`
-			${query.sql}
-			${skippedResourcesSql}			
-			ORDER BY updated_time DESC
-			LIMIT ${limit}
-		`, query.params);
+		let query = selectColumns(this.baseNeedOcrQuery(supportedMimeTypes), options?.fields || '*');
+		if (skippedResourceIds.length) query = query.where('resources.id', 'not in', literalList(skippedResourceIds));
+		return this.db().selectAll(query.orderBy('updated_time', 'desc').limit(limit));
 	}
-
 	private static async resetOcrStatus(resourceId: string) {
 		await Resource.save({
 			id: resourceId,
@@ -595,32 +624,19 @@ export default class Resource extends BaseItem {
 	public static async resourceOcrTextsByIds(ids: string[]): Promise<ResourceEntity[]> {
 		if (!ids.length) return [];
 		ids = unique(ids);
-		return this.modelSelectAll(`SELECT id, ocr_text FROM resources WHERE id IN (${this.escapeIdsForSql(ids)})`);
+		return this.modelSelectAll(compileQuery(
+			qb
+				.selectFrom('resources')
+				.select(['id', 'ocr_text'])
+				.where(eb => eb(eb.ref('id'), 'in', literalList(ids))),
+		));
 	}
 
 	public static async allForNormalization(updatedTime: number, id: string, limit = 100, options: LoadOptions = null) {
-		const makeQuery = (useRowValue: boolean): SqlQuery => {
-			const whereSql = useRowValue ? '(updated_time, id) > (?, ?)' : 'updated_time > ?';
-
-			const params: (string | number)[] = [updatedTime];
-			if (useRowValue) {
-				params.push(id);
-			}
-			params.push(ResourceOcrStatus.Done);
-			params.push(limit);
-
-			return {
-				sql: `
-					SELECT ${this.selectFields(options)} FROM resources
-					WHERE ${whereSql}
-					AND ocr_text != ''
-					AND ocr_status = ?
-					ORDER BY updated_time ASC, id ASC
-					LIMIT ?
-				`,
-				params,
-			};
-		};
+		const makeQuery = (useRowValue: boolean): SqlQuery => compileQuery(this.selectQuery('resources', options?.fields || '*')
+			.where(useRowValue ? eb(eb.refTuple('updated_time', 'id'), '>', eb.tuple(updatedTime, id)) : eb('updated_time', '>', updatedTime))
+			.where('ocr_text', '!=', '').where('ocr_status', '=', ResourceOcrStatus.Done)
+			.orderBy('updated_time', 'asc').orderBy('id', 'asc').limit(limit));
 
 		// We use a row value in this query, and that's not supported on certain
 		// Android devices (API level <= 24). So if the query fails, we fallback
@@ -647,26 +663,14 @@ export default class Resource extends BaseItem {
 		const sortField: NoteResourceSortField = options.sortField === 'size' ? 'size' : 'title';
 		const sortDirection: NoteResourceSortDirection = options.sortDirection === 'desc' ? 'desc' : 'asc';
 
-		const whereClauses: string[] = [];
-		const whereParams: (string | number)[] = [];
+		let query = qb.selectFrom('resources').select(['id', 'title', 'size', 'file_extension', 'mime']);
 		if (options.searchQuery?.trim()) {
-			const searchPattern = `%${options.searchQuery.trim().toLowerCase()}%`;
-			whereClauses.push('(LOWER(COALESCE(id, \'\')) LIKE ? OR LOWER(COALESCE(title, \'\')) LIKE ?)');
-			whereParams.push(searchPattern, searchPattern);
+			const pattern = `%${options.searchQuery.trim().toLowerCase()}%`;
+			query = query.where(eb => eb.or(['id', 'title'].map(field =>
+				eb(eb.fn('lower', [eb.fn.coalesce(field, eb.val(''))]), 'like', pattern))));
 		}
-
-		const orderBy = sortField === 'size' ? 'size' : 'LOWER(COALESCE(title, \'\'))';
-		const orderDirection = sortDirection.toUpperCase();
-		const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
-		const sql = `
-			SELECT id, title, size, file_extension, mime
-			FROM resources
-			${whereSql}
-			ORDER BY ${orderBy} ${orderDirection}, id ASC
-			LIMIT ? OFFSET ?
-		`;
-
-		const rows = await this.modelSelectAll<ResourceEntity>(sql, [...whereParams, limit + 1, offset]);
+		const order = sortField === 'size' ? eb.ref('size') : eb.fn('lower', [eb.fn.coalesce('title', eb.val(''))]);
+		const rows = await this.modelSelectAll<ResourceEntity>(query.orderBy(order, sortDirection).orderBy('id', 'asc').limit(limit + 1).offset(offset));
 		const hasMore = rows.length > limit;
 		const items = hasMore ? rows.slice(0, limit) : rows;
 

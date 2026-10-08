@@ -1,10 +1,15 @@
+import { queryBuilder as qb, compileQuery, sql } from '../kysely';
+import { sqliteStringDefault } from '../sqlite';
 import { SqlQuery } from '../types';
 
-export default (): (SqlQuery|string)[] => {
-	return [
-		'ALTER TABLE notes ADD COLUMN is_locked INT NOT NULL DEFAULT 0',
-		'ALTER TABLE notes ADD COLUMN extracted_resource_ids TEXT NOT NULL DEFAULT ""',
-		'ALTER TABLE revisions ADD COLUMN is_locked INT NOT NULL DEFAULT 0',
-		'ALTER TABLE resources ADD COLUMN is_locked INT NOT NULL DEFAULT 0',
-	];
-};
+// Preserve the original version 50 schema and data changes.
+export default (): SqlQuery[] => [
+	compileQuery(qb.schema.alterTable('notes').addColumn('is_locked', sql.raw('INT'), c => c.notNull().defaultTo(0))),
+	compileQuery(
+		qb.schema
+			.alterTable('notes')
+			.addColumn('extracted_resource_ids', sql.raw('TEXT'), c => c.notNull().defaultTo(sqliteStringDefault(''))),
+	),
+	compileQuery(qb.schema.alterTable('revisions').addColumn('is_locked', sql.raw('INT'), c => c.notNull().defaultTo(0))),
+	compileQuery(qb.schema.alterTable('resources').addColumn('is_locked', sql.raw('INT'), c => c.notNull().defaultTo(0))),
+];

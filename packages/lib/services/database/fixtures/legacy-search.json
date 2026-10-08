@@ -1,0 +1,407 @@
+[
+  {
+    "terms": [
+      {
+        "name": "title",
+        "value": "alpha",
+        "negated": false
+      },
+      {
+        "name": "tag",
+        "value": "red",
+        "negated": false
+      },
+      {
+        "name": "tag",
+        "value": "blue",
+        "negated": false
+      }
+    ],
+    "useFts": false,
+    "query": "WITH RECURSIVE \n\t\tnotes_with_INCLUSION_tags\n\t\tAS (\n\t\t\tSELECT note_tags.note_id as id\n\t\t\tFROM note_tags\n\t\t\tWHERE\n\t\t\t1 INTERSECT\n\t\t\t\n\tSELECT note_tags.note_id AS id\n\tFROM note_tags\n\tWHERE note_tags.tag_id IN (\n\tSELECT tags.id\n\tFROM tags\n\tWHERE tags.title\n\tLIKE ?) INTERSECT \n\tSELECT note_tags.note_id AS id\n\tFROM note_tags\n\tWHERE note_tags.tag_id IN (\n\tSELECT tags.id\n\tFROM tags\n\tWHERE tags.title\n\tLIKE ?)\n\t\t) \n\tSELECT\n\tnotes.id,\n\tnotes.title,\n\t\n\tnotes.user_created_time,\n\tnotes.user_updated_time,\n\tnotes.is_todo,\n\tnotes.todo_completed,\n\tnotes.parent_id\n\tFROM notes\n\tWHERE 1 \n\tAND ROWID \n\tIN (\n\t\tSELECT notes.ROWID\n\t\tFROM notes_with_INCLUSION_tags\n\t\tJOIN notes\n\t\tON notes_with_INCLUSION_tags.id=notes.id\n\t) AND  (\n\t\t\t\n\t\t\t\n\t\t\tnotes.title LIKE ? )",
+    "params": [
+      "red",
+      "blue",
+      "%alpha%"
+    ]
+  },
+  {
+    "terms": [
+      {
+        "name": "title",
+        "value": "alpha",
+        "negated": false
+      },
+      {
+        "name": "tag",
+        "value": "red",
+        "negated": false
+      },
+      {
+        "name": "tag",
+        "value": "blue",
+        "negated": false
+      }
+    ],
+    "useFts": true,
+    "query": "WITH RECURSIVE \n\t\tnotes_with_INCLUSION_tags\n\t\tAS (\n\t\t\tSELECT note_tags.note_id as id\n\t\t\tFROM note_tags\n\t\t\tWHERE\n\t\t\t1 INTERSECT\n\t\t\t\n\tSELECT note_tags.note_id AS id\n\tFROM note_tags\n\tWHERE note_tags.tag_id IN (\n\tSELECT tags.id\n\tFROM tags\n\tWHERE tags.title\n\tLIKE ?) INTERSECT \n\tSELECT note_tags.note_id AS id\n\tFROM note_tags\n\tWHERE note_tags.tag_id IN (\n\tSELECT tags.id\n\tFROM tags\n\tWHERE tags.title\n\tLIKE ?)\n\t\t) \n\tSELECT\n\tnotes_fts.id,\n\tnotes_fts.title,\n\toffsets(notes_fts) AS offsets, matchinfo(notes_fts, 'pcnalx') AS matchinfo,\n\tnotes_fts.user_created_time,\n\tnotes_fts.user_updated_time,\n\tnotes_fts.is_todo,\n\tnotes_fts.todo_completed,\n\tnotes_fts.parent_id\n\tFROM notes_fts\n\tWHERE 1 \n\tAND ROWID \n\tIN (\n\t\tSELECT notes_normalized.ROWID\n\t\tFROM notes_with_INCLUSION_tags\n\t\tJOIN notes_normalized\n\t\tON notes_with_INCLUSION_tags.id=notes_normalized.id\n\t) AND notes_fts MATCH ?",
+    "params": [
+      "red",
+      "blue",
+      "title:alpha"
+    ]
+  },
+  {
+    "terms": [
+      {
+        "name": "text",
+        "value": "alpha",
+        "negated": false
+      },
+      {
+        "name": "body",
+        "value": "hidden*",
+        "negated": true
+      }
+    ],
+    "useFts": false,
+    "query": "\n\tSELECT\n\tnotes.id,\n\tnotes.title,\n\t\n\tnotes.user_created_time,\n\tnotes.user_updated_time,\n\tnotes.is_todo,\n\tnotes.todo_completed,\n\tnotes.parent_id\n\tFROM notes\n\tWHERE 1 AND  (\n\t\t\tnotes.body LIKE ? \n\t\t\tOR\n\t\t\tnotes.title LIKE ? ) AND NOT (\n\t\t\tnotes.body LIKE ? \n\t\t\t\n\t\t\t)",
+    "params": [
+      "%alpha%",
+      "%alpha%",
+      "%hidden%%"
+    ]
+  },
+  {
+    "terms": [
+      {
+        "name": "text",
+        "value": "alpha",
+        "negated": false
+      },
+      {
+        "name": "body",
+        "value": "hidden*",
+        "negated": true
+      }
+    ],
+    "useFts": true,
+    "query": "\n\tSELECT\n\tnotes_fts.id,\n\tnotes_fts.title,\n\toffsets(notes_fts) AS offsets, matchinfo(notes_fts, 'pcnalx') AS matchinfo,\n\tnotes_fts.user_created_time,\n\tnotes_fts.user_updated_time,\n\tnotes_fts.is_todo,\n\tnotes_fts.todo_completed,\n\tnotes_fts.parent_id\n\tFROM notes_fts\n\tWHERE 1 AND notes_fts MATCH ? \n\t\t\t\tAND ROWID NOT IN (\n\t\t\t\t\tSELECT ROWID\n\t\t\t\t\tFROM notes_fts\n\t\t\t\t\tWHERE notes_fts.body MATCH ?\n\t\t\t\t)",
+    "params": [
+      "alpha",
+      "hidden*"
+    ]
+  },
+  {
+    "terms": [
+      {
+        "name": "any",
+        "value": "1",
+        "negated": false
+      },
+      {
+        "name": "tag",
+        "value": "red",
+        "negated": true
+      },
+      {
+        "name": "tag",
+        "value": "blue",
+        "negated": true
+      }
+    ],
+    "useFts": false,
+    "query": "WITH RECURSIVE \n\t\tall_notes_with_EXCLUSION_tags    \n\t\tAS (\n\t\t\tSELECT DISTINCT note_tags.note_id AS id FROM note_tags\n\t\t),\n\t\tnotes_with_EXCLUSION_tags\n\t\tAS (\n\t\t\t\n\t\tSELECT * FROM (\n\t\t\tSELECT *\n\t\t\tFROM all_notes_with_EXCLUSION_tags\n\t\t\tEXCEPT \n\tSELECT note_tags.note_id AS id\n\tFROM note_tags\n\tWHERE note_tags.tag_id IN (\n\tSELECT tags.id\n\tFROM tags\n\tWHERE tags.title\n\tLIKE ?)\n\t\t) UNION \n\t\tSELECT * FROM (\n\t\t\tSELECT *\n\t\t\tFROM all_notes_with_EXCLUSION_tags\n\t\t\tEXCEPT \n\tSELECT note_tags.note_id AS id\n\tFROM note_tags\n\tWHERE note_tags.tag_id IN (\n\tSELECT tags.id\n\tFROM tags\n\tWHERE tags.title\n\tLIKE ?)\n\t\t)\n\t\t) \n\tSELECT\n\tnotes.id,\n\tnotes.title,\n\t\n\tnotes.user_created_time,\n\tnotes.user_updated_time,\n\tnotes.is_todo,\n\tnotes.todo_completed,\n\tnotes.parent_id\n\tFROM notes\n\tWHERE ROWID=-1 \n\tOR ROWID \n\tIN (\n\t\tSELECT notes.ROWID\n\t\tFROM notes_with_EXCLUSION_tags\n\t\tJOIN notes\n\t\tON notes_with_EXCLUSION_tags.id=notes.id\n\t)",
+    "params": [
+      "red",
+      "blue"
+    ]
+  },
+  {
+    "terms": [
+      {
+        "name": "any",
+        "value": "1",
+        "negated": false
+      },
+      {
+        "name": "tag",
+        "value": "red",
+        "negated": true
+      },
+      {
+        "name": "tag",
+        "value": "blue",
+        "negated": true
+      }
+    ],
+    "useFts": true,
+    "query": "WITH RECURSIVE \n\t\tall_notes_with_EXCLUSION_tags    \n\t\tAS (\n\t\t\tSELECT DISTINCT note_tags.note_id AS id FROM note_tags\n\t\t),\n\t\tnotes_with_EXCLUSION_tags\n\t\tAS (\n\t\t\t\n\t\tSELECT * FROM (\n\t\t\tSELECT *\n\t\t\tFROM all_notes_with_EXCLUSION_tags\n\t\t\tEXCEPT \n\tSELECT note_tags.note_id AS id\n\tFROM note_tags\n\tWHERE note_tags.tag_id IN (\n\tSELECT tags.id\n\tFROM tags\n\tWHERE tags.title\n\tLIKE ?)\n\t\t) UNION \n\t\tSELECT * FROM (\n\t\t\tSELECT *\n\t\t\tFROM all_notes_with_EXCLUSION_tags\n\t\t\tEXCEPT \n\tSELECT note_tags.note_id AS id\n\tFROM note_tags\n\tWHERE note_tags.tag_id IN (\n\tSELECT tags.id\n\tFROM tags\n\tWHERE tags.title\n\tLIKE ?)\n\t\t)\n\t\t) \n\tSELECT\n\tnotes_fts.id,\n\tnotes_fts.title,\n\toffsets(notes_fts) AS offsets, matchinfo(notes_fts, 'pcnalx') AS matchinfo,\n\tnotes_fts.user_created_time,\n\tnotes_fts.user_updated_time,\n\tnotes_fts.is_todo,\n\tnotes_fts.todo_completed,\n\tnotes_fts.parent_id\n\tFROM notes_fts\n\tWHERE ROWID=-1 \n\tOR ROWID \n\tIN (\n\t\tSELECT notes_normalized.ROWID\n\t\tFROM notes_with_EXCLUSION_tags\n\t\tJOIN notes_normalized\n\t\tON notes_with_EXCLUSION_tags.id=notes_normalized.id\n\t)",
+    "params": [
+      "red",
+      "blue"
+    ]
+  },
+  {
+    "terms": [
+      {
+        "name": "notebook",
+        "value": "Root",
+        "negated": false
+      },
+      {
+        "name": "notebook",
+        "value": "Child",
+        "negated": true
+      },
+      {
+        "name": "any",
+        "value": "0",
+        "negated": false
+      },
+      {
+        "name": "tag",
+        "value": "red",
+        "negated": false
+      }
+    ],
+    "useFts": false,
+    "query": "WITH RECURSIVE \n\tnotebooks_in_scope(id)\n\tAS (\n\t\tSELECT folders.id\n\t\tFROM folders\n\t\tWHERE id\n\t\tIN (\n\t\t\tSELECT id\n\t\t\tFROM folders\n\t\t\tWHERE folders.title LIKE ?\n\t\t)\n\t\tUNION ALL\n\t\tSELECT folders.id\n\t\tFROM folders\n\t\tJOIN notebooks_in_scope\n\t\tON folders.parent_id=notebooks_in_scope.id\n\t),\n\tnotebooks_not_in_scope(id)\n\tAS (\n\t\tSELECT folders.id\n\t\tFROM folders\n\t\tWHERE id\n\t\tIN (\n\t\t\tSELECT id\n\t\t\tFROM folders\n\t\t\tWHERE folders.title LIKE ?\n\t\t)\n\t\tUNION ALL\n\t\tSELECT folders.id\n\t\tFROM folders\n\t\tJOIN notebooks_not_in_scope\n\t\tON folders.parent_id=notebooks_not_in_scope.id\n\t),\n\t\tnotes_with_INCLUSION_tags\n\t\tAS (\n\t\t\tSELECT note_tags.note_id as id\n\t\t\tFROM note_tags\n\t\t\tWHERE\n\t\t\t1 INTERSECT\n\t\t\t\n\tSELECT note_tags.note_id AS id\n\tFROM note_tags\n\tWHERE note_tags.tag_id IN (\n\tSELECT tags.id\n\tFROM tags\n\tWHERE tags.title\n\tLIKE ?)\n\t\t) \n\tSELECT\n\tnotes.id,\n\tnotes.title,\n\t\n\tnotes.user_created_time,\n\tnotes.user_updated_time,\n\tnotes.is_todo,\n\tnotes.todo_completed,\n\tnotes.parent_id\n\tFROM notes\n\tWHERE 1 \n\tAND ROWID  IN (\n\t\tSELECT notes.ROWID\n\t\tFROM notebooks_in_scope\n\t\tJOIN notes\n\t\tON notebooks_in_scope.id=notes.parent_id\n\t) AND ROWID IN ( SELECT ROWID FROM notes_fts WHERE 1=0 \n\tAND ROWID NOT IN (\n\t\tSELECT notes.ROWID\n\t\tFROM notebooks_not_in_scope\n\t\tJOIN notes\n\t\tON notebooks_not_in_scope.id=notes.parent_id\n\t) \n\tAND ROWID \n\tIN (\n\t\tSELECT notes.ROWID\n\t\tFROM notes_with_INCLUSION_tags\n\t\tJOIN notes\n\t\tON notes_with_INCLUSION_tags.id=notes.id\n\t))",
+    "params": [
+      "Root",
+      "Child",
+      "red"
+    ]
+  },
+  {
+    "terms": [
+      {
+        "name": "notebook",
+        "value": "Root",
+        "negated": false
+      },
+      {
+        "name": "notebook",
+        "value": "Child",
+        "negated": true
+      },
+      {
+        "name": "any",
+        "value": "0",
+        "negated": false
+      },
+      {
+        "name": "tag",
+        "value": "red",
+        "negated": false
+      }
+    ],
+    "useFts": true,
+    "query": "WITH RECURSIVE \n\tnotebooks_in_scope(id)\n\tAS (\n\t\tSELECT folders.id\n\t\tFROM folders\n\t\tWHERE id\n\t\tIN (\n\t\t\tSELECT id\n\t\t\tFROM folders\n\t\t\tWHERE folders.title LIKE ?\n\t\t)\n\t\tUNION ALL\n\t\tSELECT folders.id\n\t\tFROM folders\n\t\tJOIN notebooks_in_scope\n\t\tON folders.parent_id=notebooks_in_scope.id\n\t),\n\tnotebooks_not_in_scope(id)\n\tAS (\n\t\tSELECT folders.id\n\t\tFROM folders\n\t\tWHERE id\n\t\tIN (\n\t\t\tSELECT id\n\t\t\tFROM folders\n\t\t\tWHERE folders.title LIKE ?\n\t\t)\n\t\tUNION ALL\n\t\tSELECT folders.id\n\t\tFROM folders\n\t\tJOIN notebooks_not_in_scope\n\t\tON folders.parent_id=notebooks_not_in_scope.id\n\t),\n\t\tnotes_with_INCLUSION_tags\n\t\tAS (\n\t\t\tSELECT note_tags.note_id as id\n\t\t\tFROM note_tags\n\t\t\tWHERE\n\t\t\t1 INTERSECT\n\t\t\t\n\tSELECT note_tags.note_id AS id\n\tFROM note_tags\n\tWHERE note_tags.tag_id IN (\n\tSELECT tags.id\n\tFROM tags\n\tWHERE tags.title\n\tLIKE ?)\n\t\t) \n\tSELECT\n\tnotes_fts.id,\n\tnotes_fts.title,\n\toffsets(notes_fts) AS offsets, matchinfo(notes_fts, 'pcnalx') AS matchinfo,\n\tnotes_fts.user_created_time,\n\tnotes_fts.user_updated_time,\n\tnotes_fts.is_todo,\n\tnotes_fts.todo_completed,\n\tnotes_fts.parent_id\n\tFROM notes_fts\n\tWHERE 1 \n\tAND ROWID  IN (\n\t\tSELECT notes_normalized.ROWID\n\t\tFROM notebooks_in_scope\n\t\tJOIN notes_normalized\n\t\tON notebooks_in_scope.id=notes_normalized.parent_id\n\t) AND ROWID IN ( SELECT ROWID FROM notes_fts WHERE 1=0 \n\tAND ROWID NOT IN (\n\t\tSELECT notes_normalized.ROWID\n\t\tFROM notebooks_not_in_scope\n\t\tJOIN notes_normalized\n\t\tON notebooks_not_in_scope.id=notes_normalized.parent_id\n\t) \n\tAND ROWID \n\tIN (\n\t\tSELECT notes_normalized.ROWID\n\t\tFROM notes_with_INCLUSION_tags\n\t\tJOIN notes_normalized\n\t\tON notes_with_INCLUSION_tags.id=notes_normalized.id\n\t))",
+    "params": [
+      "Root",
+      "Child",
+      "red"
+    ]
+  },
+  {
+    "terms": [
+      {
+        "name": "id",
+        "value": "note-%",
+        "negated": false
+      },
+      {
+        "name": "notebook",
+        "value": "Root",
+        "negated": false
+      },
+      {
+        "name": "any",
+        "value": "1",
+        "negated": false
+      },
+      {
+        "name": "tag",
+        "value": "red",
+        "negated": false
+      }
+    ],
+    "useFts": false,
+    "query": "WITH RECURSIVE \n\tnotebooks_in_scope(id)\n\tAS (\n\t\tSELECT folders.id\n\t\tFROM folders\n\t\tWHERE id\n\t\tIN (\n\t\t\tSELECT id\n\t\t\tFROM folders\n\t\t\tWHERE folders.title LIKE ?\n\t\t)\n\t\tUNION ALL\n\t\tSELECT folders.id\n\t\tFROM folders\n\t\tJOIN notebooks_in_scope\n\t\tON folders.parent_id=notebooks_in_scope.id\n\t),\n\t\tnotes_with_INCLUSION_tags\n\t\tAS (\n\t\t\tSELECT note_tags.note_id as id\n\t\t\tFROM note_tags\n\t\t\tWHERE\n\t\t\t0 UNION\n\t\t\t\n\tSELECT note_tags.note_id AS id\n\tFROM note_tags\n\tWHERE note_tags.tag_id IN (\n\tSELECT tags.id\n\tFROM tags\n\tWHERE tags.title\n\tLIKE ?)\n\t\t) \n\tSELECT\n\tnotes.id,\n\tnotes.title,\n\t\n\tnotes.user_created_time,\n\tnotes.user_updated_time,\n\tnotes.is_todo,\n\tnotes.todo_completed,\n\tnotes.parent_id\n\tFROM notes\n\tWHERE 1 \n\t\tOR (  ROWID IN (\n\t\t\tSELECT ROWID\n\t\t\tFROM notes\n\t\t\tWHERE id  LIKE ?\n\t\t)) AND ROWID IN ( SELECT ROWID FROM notes_fts WHERE 1=0 \n\tAND ROWID  IN (\n\t\tSELECT notes.ROWID\n\t\tFROM notebooks_in_scope\n\t\tJOIN notes\n\t\tON notebooks_in_scope.id=notes.parent_id\n\t) \n\tOR ROWID \n\tIN (\n\t\tSELECT notes.ROWID\n\t\tFROM notes_with_INCLUSION_tags\n\t\tJOIN notes\n\t\tON notes_with_INCLUSION_tags.id=notes.id\n\t))",
+    "params": [
+      "note-%",
+      "Root",
+      "red"
+    ]
+  },
+  {
+    "terms": [
+      {
+        "name": "id",
+        "value": "note-%",
+        "negated": false
+      },
+      {
+        "name": "notebook",
+        "value": "Root",
+        "negated": false
+      },
+      {
+        "name": "any",
+        "value": "1",
+        "negated": false
+      },
+      {
+        "name": "tag",
+        "value": "red",
+        "negated": false
+      }
+    ],
+    "useFts": true,
+    "query": "WITH RECURSIVE \n\tnotebooks_in_scope(id)\n\tAS (\n\t\tSELECT folders.id\n\t\tFROM folders\n\t\tWHERE id\n\t\tIN (\n\t\t\tSELECT id\n\t\t\tFROM folders\n\t\t\tWHERE folders.title LIKE ?\n\t\t)\n\t\tUNION ALL\n\t\tSELECT folders.id\n\t\tFROM folders\n\t\tJOIN notebooks_in_scope\n\t\tON folders.parent_id=notebooks_in_scope.id\n\t),\n\t\tnotes_with_INCLUSION_tags\n\t\tAS (\n\t\t\tSELECT note_tags.note_id as id\n\t\t\tFROM note_tags\n\t\t\tWHERE\n\t\t\t0 UNION\n\t\t\t\n\tSELECT note_tags.note_id AS id\n\tFROM note_tags\n\tWHERE note_tags.tag_id IN (\n\tSELECT tags.id\n\tFROM tags\n\tWHERE tags.title\n\tLIKE ?)\n\t\t) \n\tSELECT\n\tnotes_fts.id,\n\tnotes_fts.title,\n\toffsets(notes_fts) AS offsets, matchinfo(notes_fts, 'pcnalx') AS matchinfo,\n\tnotes_fts.user_created_time,\n\tnotes_fts.user_updated_time,\n\tnotes_fts.is_todo,\n\tnotes_fts.todo_completed,\n\tnotes_fts.parent_id\n\tFROM notes_fts\n\tWHERE 1 \n\t\tOR (  ROWID IN (\n\t\t\tSELECT ROWID\n\t\t\tFROM notes_normalized\n\t\t\tWHERE id  LIKE ?\n\t\t)) AND ROWID IN ( SELECT ROWID FROM notes_fts WHERE 1=0 \n\tAND ROWID  IN (\n\t\tSELECT notes_normalized.ROWID\n\t\tFROM notebooks_in_scope\n\t\tJOIN notes_normalized\n\t\tON notebooks_in_scope.id=notes_normalized.parent_id\n\t) \n\tOR ROWID \n\tIN (\n\t\tSELECT notes_normalized.ROWID\n\t\tFROM notes_with_INCLUSION_tags\n\t\tJOIN notes_normalized\n\t\tON notes_with_INCLUSION_tags.id=notes_normalized.id\n\t))",
+    "params": [
+      "note-%",
+      "Root",
+      "red"
+    ]
+  },
+  {
+    "terms": [
+      {
+        "name": "due",
+        "value": "2020",
+        "negated": false
+      },
+      {
+        "name": "iscompleted",
+        "value": "0",
+        "negated": false
+      },
+      {
+        "name": "type",
+        "value": "todo",
+        "negated": false
+      }
+    ],
+    "useFts": false,
+    "query": "\n\tSELECT\n\tnotes.id,\n\tnotes.title,\n\t\n\tnotes.user_created_time,\n\tnotes.user_updated_time,\n\tnotes.is_todo,\n\tnotes.todo_completed,\n\tnotes.parent_id\n\tFROM notes\n\tWHERE 1 \n\t\t\tAND notes.is_todo IS 1 \n\t\t\tAND notes.is_todo IS 1 AND notes.todo_completed IS 0 \n\t\tAND ( is_todo IS 1 AND  ROWID IN (\n\t\t\tSELECT ROWID\n\t\t\tFROM notes\n\t\t\tWHERE todo_due >= ?\n\t\t))",
+    "params": [
+      "1577790000000"
+    ]
+  },
+  {
+    "terms": [
+      {
+        "name": "due",
+        "value": "2020",
+        "negated": false
+      },
+      {
+        "name": "iscompleted",
+        "value": "0",
+        "negated": false
+      },
+      {
+        "name": "type",
+        "value": "todo",
+        "negated": false
+      }
+    ],
+    "useFts": true,
+    "query": "\n\tSELECT\n\tnotes_fts.id,\n\tnotes_fts.title,\n\toffsets(notes_fts) AS offsets, matchinfo(notes_fts, 'pcnalx') AS matchinfo,\n\tnotes_fts.user_created_time,\n\tnotes_fts.user_updated_time,\n\tnotes_fts.is_todo,\n\tnotes_fts.todo_completed,\n\tnotes_fts.parent_id\n\tFROM notes_fts\n\tWHERE 1 \n\t\t\tAND notes_fts.is_todo IS 1 \n\t\t\tAND notes_fts.is_todo IS 1 AND notes_fts.todo_completed IS 0 \n\t\tAND ( is_todo IS 1 AND  ROWID IN (\n\t\t\tSELECT ROWID\n\t\t\tFROM notes_normalized\n\t\t\tWHERE todo_due >= ?\n\t\t))",
+    "params": [
+      "1577790000000"
+    ]
+  },
+  {
+    "terms": [
+      {
+        "name": "resource",
+        "value": "image/%",
+        "negated": false
+      },
+      {
+        "name": "resource",
+        "value": "application/%",
+        "negated": true
+      }
+    ],
+    "useFts": false,
+    "query": "WITH RECURSIVE \n\t\tnotes_with_INCLUSION_resources\n\t\tAS (\n\t\t\tSELECT note_resources.note_id as id\n\t\t\tFROM note_resources\n\t\t\tWHERE\n\t\t\t1 INTERSECT\n\t\t\t\n\tSELECT note_resources.note_id AS id\n\tFROM note_resources\n\tWHERE note_resources.is_associated=1\n\tAND note_resources.resource_id IN (\n\tSELECT resources.id\n\tFROM resources\n\tWHERE resources.mime LIKE ?)\n\t\t),\n\t\tnotes_with_EXCLUSION_resources\n\t\tAS (\n\t\t\tSELECT note_resources.note_id as id\n\t\t\tFROM note_resources\n\t\t\tWHERE\n\t\t\t0 UNION\n\t\t\t\n\tSELECT note_resources.note_id AS id\n\tFROM note_resources\n\tWHERE note_resources.is_associated=1\n\tAND note_resources.resource_id IN (\n\tSELECT resources.id\n\tFROM resources\n\tWHERE resources.mime LIKE ?)\n\t\t) \n\tSELECT\n\tnotes.id,\n\tnotes.title,\n\t\n\tnotes.user_created_time,\n\tnotes.user_updated_time,\n\tnotes.is_todo,\n\tnotes.todo_completed,\n\tnotes.parent_id\n\tFROM notes\n\tWHERE 1 \n\tAND ROWID \n\tIN (\n\t\tSELECT notes.ROWID\n\t\tFROM notes_with_INCLUSION_resources\n\t\tJOIN notes\n\t\tON notes_with_INCLUSION_resources.id=notes.id\n\t) \n\tAND ROWID NOT\n\tIN (\n\t\tSELECT notes.ROWID\n\t\tFROM notes_with_EXCLUSION_resources\n\t\tJOIN notes\n\t\tON notes_with_EXCLUSION_resources.id=notes.id\n\t)",
+    "params": [
+      "image/%",
+      "application/%"
+    ]
+  },
+  {
+    "terms": [
+      {
+        "name": "resource",
+        "value": "image/%",
+        "negated": false
+      },
+      {
+        "name": "resource",
+        "value": "application/%",
+        "negated": true
+      }
+    ],
+    "useFts": true,
+    "query": "WITH RECURSIVE \n\t\tnotes_with_INCLUSION_resources\n\t\tAS (\n\t\t\tSELECT note_resources.note_id as id\n\t\t\tFROM note_resources\n\t\t\tWHERE\n\t\t\t1 INTERSECT\n\t\t\t\n\tSELECT note_resources.note_id AS id\n\tFROM note_resources\n\tWHERE note_resources.is_associated=1\n\tAND note_resources.resource_id IN (\n\tSELECT resources.id\n\tFROM resources\n\tWHERE resources.mime LIKE ?)\n\t\t),\n\t\tnotes_with_EXCLUSION_resources\n\t\tAS (\n\t\t\tSELECT note_resources.note_id as id\n\t\t\tFROM note_resources\n\t\t\tWHERE\n\t\t\t0 UNION\n\t\t\t\n\tSELECT note_resources.note_id AS id\n\tFROM note_resources\n\tWHERE note_resources.is_associated=1\n\tAND note_resources.resource_id IN (\n\tSELECT resources.id\n\tFROM resources\n\tWHERE resources.mime LIKE ?)\n\t\t) \n\tSELECT\n\tnotes_fts.id,\n\tnotes_fts.title,\n\toffsets(notes_fts) AS offsets, matchinfo(notes_fts, 'pcnalx') AS matchinfo,\n\tnotes_fts.user_created_time,\n\tnotes_fts.user_updated_time,\n\tnotes_fts.is_todo,\n\tnotes_fts.todo_completed,\n\tnotes_fts.parent_id\n\tFROM notes_fts\n\tWHERE 1 \n\tAND ROWID \n\tIN (\n\t\tSELECT notes_normalized.ROWID\n\t\tFROM notes_with_INCLUSION_resources\n\t\tJOIN notes_normalized\n\t\tON notes_with_INCLUSION_resources.id=notes_normalized.id\n\t) \n\tAND ROWID NOT\n\tIN (\n\t\tSELECT notes_normalized.ROWID\n\t\tFROM notes_with_EXCLUSION_resources\n\t\tJOIN notes_normalized\n\t\tON notes_with_EXCLUSION_resources.id=notes_normalized.id\n\t)",
+    "params": [
+      "image/%",
+      "application/%"
+    ]
+  },
+  {
+    "terms": [
+      {
+        "name": "any",
+        "value": "1",
+        "negated": false
+      },
+      {
+        "name": "body",
+        "value": "hidden*",
+        "negated": true
+      },
+      {
+        "name": "title",
+        "value": "alpha",
+        "negated": true
+      }
+    ],
+    "useFts": false,
+    "query": "\n\tSELECT\n\tnotes.id,\n\tnotes.title,\n\t\n\tnotes.user_created_time,\n\tnotes.user_updated_time,\n\tnotes.is_todo,\n\tnotes.todo_completed,\n\tnotes.parent_id\n\tFROM notes\n\tWHERE ROWID=-1 OR NOT (\n\t\t\t\n\t\t\t\n\t\t\tnotes.title LIKE ? ) OR NOT (\n\t\t\tnotes.body LIKE ? \n\t\t\t\n\t\t\t)",
+    "params": [
+      "%alpha%",
+      "%hidden%%"
+    ]
+  },
+  {
+    "terms": [
+      {
+        "name": "any",
+        "value": "1",
+        "negated": false
+      },
+      {
+        "name": "body",
+        "value": "hidden*",
+        "negated": true
+      },
+      {
+        "name": "title",
+        "value": "alpha",
+        "negated": true
+      }
+    ],
+    "useFts": true,
+    "query": "\n\tSELECT\n\tnotes_fts.id,\n\tnotes_fts.title,\n\toffsets(notes_fts) AS offsets, matchinfo(notes_fts, 'pcnalx') AS matchinfo,\n\tnotes_fts.user_created_time,\n\tnotes_fts.user_updated_time,\n\tnotes_fts.is_todo,\n\tnotes_fts.todo_completed,\n\tnotes_fts.parent_id\n\tFROM notes_fts\n\tWHERE ROWID=-1 \n\t\t\t\t\tOR ROWID IN (\n\t\t\t\t\t\tSELECT *\n\t\t\t\t\t\t\tFROM (\n\t\t\t\t\t\t\t\tSELECT ROWID\n\t\t\t\t\t\t\t\tFROM notes_fts\n\t\t\t\t\t\t\t\tEXCEPT\n\t\t\t\t\t\t\t\tSELECT ROWID\n\t\t\t\t\t\t\t\tFROM notes_fts\n\t\t\t\t\t\t\t\tWHERE notes_fts.title MATCH ?\n\t\t\t\t\t\t)\n\t\t\t\t\t) \n\t\t\t\t\tOR ROWID IN (\n\t\t\t\t\t\tSELECT *\n\t\t\t\t\t\t\tFROM (\n\t\t\t\t\t\t\t\tSELECT ROWID\n\t\t\t\t\t\t\t\tFROM notes_fts\n\t\t\t\t\t\t\t\tEXCEPT\n\t\t\t\t\t\t\t\tSELECT ROWID\n\t\t\t\t\t\t\t\tFROM notes_fts\n\t\t\t\t\t\t\t\tWHERE notes_fts.body MATCH ?\n\t\t\t\t\t\t)\n\t\t\t\t\t)",
+    "params": [
+      "alpha",
+      "hidden*"
+    ]
+  }
+]

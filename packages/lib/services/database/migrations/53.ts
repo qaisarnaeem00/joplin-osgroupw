@@ -1,22 +1,20 @@
+import { queryBuilder as qb, compileQuery, sql } from '../kysely';
+import { sqliteStringDefault } from '../sqlite';
 import { SqlQuery } from '../types';
 
-// Recreate conflict_note_states with a numeric auto-increment primary key, to
-// match the convention used by the other tables. note_id keeps its uniqueness
-// through a UNIQUE constraint. The table was added in migration 51 and hasn't
-// shipped in a release yet, so it is safe to drop and recreate it rather than
-// migrate the rows
-
-export default (): (SqlQuery|string)[] => {
-	return [
-		'DROP TABLE IF EXISTS conflict_note_states',
-		`CREATE TABLE conflict_note_states (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			note_id TEXT NOT NULL UNIQUE,
-			base_body TEXT NOT NULL DEFAULT "",
-			base_title TEXT NOT NULL DEFAULT "",
-			remote_body TEXT NOT NULL DEFAULT "",
-			remote_title TEXT NOT NULL DEFAULT "",
-			remote_updated_time INT NOT NULL DEFAULT 0
-		)`,
-	];
-};
+// Preserve migration 53: this unshipped table is deliberately dropped and
+// recreated with a numeric primary key. Existing conflict snapshots are discarded.
+export default (): SqlQuery[] => [
+	compileQuery(qb.schema.dropTable('conflict_note_states').ifExists()),
+	compileQuery(
+		qb.schema
+			.createTable('conflict_note_states')
+			.addColumn('id', sql.raw('INTEGER'), c => c.primaryKey().autoIncrement())
+			.addColumn('note_id', sql.raw('TEXT'), c => c.notNull().unique())
+			.addColumn('base_body', sql.raw('TEXT'), c => c.notNull().defaultTo(sqliteStringDefault('')))
+			.addColumn('base_title', sql.raw('TEXT'), c => c.notNull().defaultTo(sqliteStringDefault('')))
+			.addColumn('remote_body', sql.raw('TEXT'), c => c.notNull().defaultTo(sqliteStringDefault('')))
+			.addColumn('remote_title', sql.raw('TEXT'), c => c.notNull().defaultTo(sqliteStringDefault('')))
+			.addColumn('remote_updated_time', sql.raw('INT'), c => c.notNull().defaultTo(0)),
+	),
+];

@@ -1,7 +1,11 @@
+import { queryBuilder as qb, compileQuery, sql } from '../kysely';
 import { SqlQuery } from '../types';
 
-export default (): (SqlQuery|string)[] => {
-	return [
-		'ALTER TABLE sync_items ADD COLUMN remote_item_updated_time INT NOT NULL DEFAULT 0',
-	];
-};
+// Preserve the original version 49 schema and data changes.
+export default (): SqlQuery[] => [
+	compileQuery(
+		qb.schema
+			.alterTable('sync_items')
+			.addColumn('remote_item_updated_time', sql.raw('INT'), c => c.notNull().defaultTo(0)),
+	),
+];

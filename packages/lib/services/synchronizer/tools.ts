@@ -1,3 +1,4 @@
+import { queryBuilder as qb, compileQuery } from '../database/kysely';
 import JoplinDatabase from '../../JoplinDatabase';
 import BaseItem from '../../models/BaseItem';
 import Setting from '../../models/Setting';
@@ -19,8 +20,8 @@ async function clearSyncContext() {
 
 export async function clearLocalSyncStateForReupload(db: JoplinDatabase) {
 	const queries: SqlQuery[] = [
-		{ sql: 'DELETE FROM deleted_items' },
-		{ sql: 'DELETE FROM sync_items' },
+		compileQuery(qb.deleteFrom('deleted_items')),
+		compileQuery(qb.deleteFrom('sync_items')),
 	];
 
 	await db.transactionExecBatch(queries);
@@ -30,17 +31,17 @@ export async function clearLocalSyncStateForReupload(db: JoplinDatabase) {
 
 export async function clearLocalDataForRedownload(db: JoplinDatabase) {
 	const queries: SqlQuery[] = [
-		{ sql: 'DELETE FROM deleted_items' },
-		{ sql: 'DELETE FROM sync_items' },
-		{ sql: 'DELETE FROM item_changes' },
-		{ sql: 'DELETE FROM note_resources' },
+		compileQuery(qb.deleteFrom('deleted_items')),
+		compileQuery(qb.deleteFrom('sync_items')),
+		compileQuery(qb.deleteFrom('item_changes')),
+		compileQuery(qb.deleteFrom('note_resources')),
 	];
 
 	const syncItemTypes = BaseItem.syncItemTypes();
 
 	for (const syncItemType of syncItemTypes) {
 		const SyncItemClass = BaseItem.getClassByItemType(syncItemType);
-		queries.push({ sql: `DELETE FROM ${db.escapeField(SyncItemClass.tableName())}` });
+		queries.push(compileQuery(qb.deleteFrom(SyncItemClass.tableName())));
 	}
 
 	await db.transactionExecBatch(queries);

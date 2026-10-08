@@ -1,3 +1,4 @@
+import { literalList, eb } from '../database/kysely';
 import SearchEngine from './SearchEngine';
 import Note, { PreviewsOptions } from '../../models/Note';
 import Setting from '../../models/Setting';
@@ -56,7 +57,7 @@ export default class SearchEngineUtils {
 
 		const previewOptions: PreviewsOptions = { order: [],
 			fields: fields,
-			conditions: [`id IN (${Note.escapeIdsForSql(noteIds)})`],
+			expression: eb('id', 'in', literalList(noteIds)),
 			...options };
 
 		const notes = await Note.previews(null, previewOptions);

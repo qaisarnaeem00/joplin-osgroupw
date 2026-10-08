@@ -1,3 +1,5 @@
+import { eb } from '../../database/kysely';
+import { LoadOptions } from '../../../models/utils/types';
 import BaseModel, { ModelType } from '../../../BaseModel';
 import { Request } from '../Api';
 import defaultLoadOptions from '../utils/defaultLoadOptions';
@@ -20,9 +22,8 @@ export default async function(request: Request) {
 
 	if (modelType !== BaseItem.TYPE_NOTE) {
 		const ModelClass = BaseItem.getClassByItemType(modelType);
-		const options: { fields?: string[]; where: string; whereParams: string[]; caseInsensitive: boolean } = {
-			where: 'title LIKE ?',
-			whereParams: [query.replace(/\*/g, '%')],
+		const options: LoadOptions = {
+			expression: eb('title', 'like', query.replace(/\*/g, '%')),
 			caseInsensitive: true,
 		};
 		const fields = requestFields(request, modelType);

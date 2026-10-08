@@ -172,4 +172,33 @@ describe('NoteEmbedding', () => {
 			]),
 		).rejects.toThrow(/dimension/);
 	});
+	it('exports vector pages with cursor boundaries and note scopes', async () => {
+		if (skipIfNoVec()) return;
+		await NoteEmbedding.saveChunks('note-a', 'm', [
+			{ chunkIndex: 0, chunkText: 'a0', vector: [1, 0, 0, 0] },
+			{ chunkIndex: 1, chunkText: 'a1', vector: [0, 1, 0, 0] },
+		]);
+		await NoteEmbedding.saveChunks('note-b', 'm', [
+			{ chunkIndex: 0, chunkText: 'b0', vector: [0, 0, 1, 0] },
+		]);
+		const first = await NoteEmbedding.chunksPage({ limit: 1 });
+		expect(first).toHaveLength(1);
+		expect(first[0]).toMatchObject({ noteId: 'note-a', chunkIndex: 0, vector: [1, 0, 0, 0] });
+		const remaining = await NoteEmbedding.chunksPage({ limit: 10, afterRowid: first[0].rowid });
+		expect(remaining.map(row => row.chunkText)).toEqual(['a1', 'b0']);
+		const scoped = await NoteEmbedding.chunksPage({ limit: 10, noteIds: ['note-b'] });
+		expect(scoped).toHaveLength(1);
+		expect(scoped[0].vector).toEqual([0, 0, 1, 0]);
+		expect(await NoteEmbedding.chunksPage({ limit: 10, noteIds: [] })).toEqual([]);
+	});
+
+	it('keeps metadata queries available when the vector extension is absent', async () => {
+		const availability = jest.spyOn(db(1), 'sqliteVecAvailable').mockReturnValue(false);
+		try {
+			expect(await NoteEmbedding.countByNoteId('absent')).toBe(0);
+			await expect(NoteEmbedding.saveChunks('note', 'm', [{ chunkIndex: 0, chunkText: 'text', vector: [1] }])).rejects.toThrow();
+			await expect(NoteEmbedding.chunksPage({ limit: 10 })).rejects.toThrow();
+		} finally { availability.mockRestore(); }
+	});
+
 });

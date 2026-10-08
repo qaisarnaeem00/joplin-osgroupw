@@ -1,3 +1,4 @@
+import { queryBuilder as qb, compileQuery } from './database/kysely';
 import time from '../time';
 import BaseItem from '../models/BaseItem';
 import Alarm from '../models/Alarm';
@@ -94,7 +95,14 @@ export default class ReportService {
 		for (let i = 0; i < itemTypes.length; i++) {
 			const itemType = itemTypes[i];
 			const ItemClass = BaseItem.getClassByItemType(itemType);
-			const items = await ItemClass.modelSelectAll(`SELECT items.id, items.updated_time, sync_items.sync_time FROM ${ItemClass.tableName()} items JOIN sync_items ON sync_items.item_id = items.id`);
+			const items = await ItemClass.modelSelectAll(compileQuery(
+				qb
+					.selectFrom(`${ItemClass.tableName()} as items`)
+					.select(['items.id', 'items.updated_time', 'sync_items.sync_time'])
+					.innerJoin('sync_items', join =>
+						join.on(eb => eb(eb.ref('sync_items.item_id'), '=', eb.ref('items.id'))),
+					),
+			));
 
 			for (let j = 0; j < items.length; j++) {
 				const item = items[j];

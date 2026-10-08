@@ -20,6 +20,15 @@ module.exports = {
 	testPathIgnorePatterns: testPathIgnorePatterns,
 
 	testEnvironment: 'node',
+	transform: {
+		'[/\\\\]kysely[/\\\\]dist[/\\\\].*\\.js$': '<rootDir>/kysely-jest-transformer.js',
+		// Keep Jest's normal transformer, including jest.mock hoisting.
+		'^.+\\.[jt]sx?$': 'babel-jest',
+	},
+	transformIgnorePatterns: ['/node_modules/(?!kysely/)'],
+	// Recycle between test files: loading Kysely in every Jest VM otherwise
+	// accumulates enough memory to make the full suite swap on smaller machines.
+	workerIdleMemoryLimit: '512MB',
 
 	setupFilesAfterEnv: [
 		'jest-expect-message',

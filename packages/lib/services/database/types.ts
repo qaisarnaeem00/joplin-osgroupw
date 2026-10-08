@@ -1,3 +1,4 @@
+import type { BuildableQuery } from './kysely';
 import { ModelType } from "../../BaseModel";
 
 export interface BaseItemEntity {
@@ -24,7 +25,7 @@ export interface SqlQuery {
 	params?: SqlParams;
 }
 
-export type StringOrSqlQuery = string | SqlQuery;
+export type StringOrSqlQuery = string | SqlQuery | BuildableQuery;
 
 export type Migration = () => (SqlQuery|string)[];
 
