@@ -1,10 +1,11 @@
-import { SqlQuery } from '../types';
+import { addColumn } from '../sqlite';
+import { StringOrSqlQuery } from '../types';
 
-export default (): (SqlQuery|string)[] => {
+export default (): StringOrSqlQuery[] => {
 	return [
-		'ALTER TABLE notes ADD COLUMN is_locked INT NOT NULL DEFAULT 0',
-		'ALTER TABLE notes ADD COLUMN extracted_resource_ids TEXT NOT NULL DEFAULT ""',
-		'ALTER TABLE revisions ADD COLUMN is_locked INT NOT NULL DEFAULT 0',
-		'ALTER TABLE resources ADD COLUMN is_locked INT NOT NULL DEFAULT 0',
+		addColumn('notes', 'is_locked', 'INT NOT NULL DEFAULT 0'),
+		addColumn('notes', 'extracted_resource_ids', 'TEXT NOT NULL DEFAULT ""'),
+		addColumn('revisions', 'is_locked', 'INT NOT NULL DEFAULT 0'),
+		addColumn('resources', 'is_locked', 'INT NOT NULL DEFAULT 0'),
 	];
 };

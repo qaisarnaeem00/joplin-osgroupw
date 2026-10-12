@@ -1,3 +1,4 @@
+import { db } from '../services/database/kysely';
 import BaseModel from '../BaseModel';
 import { AlarmEntity, NoteEntity } from '../services/database/types';
 import Note from './Note';
@@ -20,16 +21,16 @@ export default class Alarm extends BaseModel {
 	}
 
 	public static byNoteId(noteId: string) {
-		return this.modelSelectOne('SELECT * FROM alarms WHERE note_id = ?', [noteId]);
+		return this.modelSelectOne(this.selectQuery().where('note_id', '=', noteId));
 	}
 
 	public static async deleteExpiredAlarms() {
-		return this.db().exec('DELETE FROM alarms WHERE trigger_time <= ?', [Date.now()]);
+		return this.db().exec(db.deleteFrom('alarms').where('trigger_time', '<=', Date.now()));
 	}
 
 	public static async alarmIdsWithoutNotes() {
 		// https://stackoverflow.com/a/4967229/561309
-		const alarms = await this.db().selectAll('SELECT alarms.id FROM alarms LEFT JOIN notes ON alarms.note_id = notes.id WHERE notes.id IS NULL') as { id: number }[];
+		const alarms = await this.db().selectAll(db.selectFrom('alarms').leftJoin('notes', 'alarms.note_id', 'notes.id').select('alarms.id').where('notes.id', 'is', null)) as { id: number }[];
 		return alarms.map(a => {
 			return a.id;
 		});
@@ -57,6 +58,6 @@ export default class Alarm extends BaseModel {
 	}
 
 	public static async allDue() {
-		return this.modelSelectAll('SELECT * FROM alarms WHERE trigger_time >= ?', [Date.now()]);
+		return this.modelSelectAll(this.selectQuery().where('trigger_time', '>=', Date.now()));
 	}
 }

@@ -27,7 +27,7 @@ export default class Migration extends BaseModel {
 	}
 
 	public static migrationsToDo() {
-		return this.modelSelectAll('SELECT * FROM migrations ORDER BY number ASC');
+		return this.modelSelectAll(this.selectQuery().orderBy('number', 'asc'));
 	}
 
 	public static script(number: number) {

@@ -1,8 +1,10 @@
-import { SqlQuery } from '../types';
+import { db } from '../kysely';
+import { addColumn } from '../sqlite';
+import { StringOrSqlQuery } from '../types';
 
-export default (): (SqlQuery|string)[] => {
+export default (): StringOrSqlQuery[] => {
 	return [
-		'ALTER TABLE `resources` ADD COLUMN blob_updated_time INT NOT NULL DEFAULT 0',
-		'UPDATE `resources` SET blob_updated_time = updated_time',
+		addColumn('resources', 'blob_updated_time', 'INT NOT NULL DEFAULT 0'),
+		db.updateTable('resources').set(eb => ({ blob_updated_time: eb.ref('updated_time') })),
 	];
 };

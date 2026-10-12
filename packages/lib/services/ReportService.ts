@@ -1,3 +1,4 @@
+import { db } from './database/kysely';
 import time from '../time';
 import BaseItem from '../models/BaseItem';
 import Alarm from '../models/Alarm';
@@ -94,7 +95,7 @@ export default class ReportService {
 		for (let i = 0; i < itemTypes.length; i++) {
 			const itemType = itemTypes[i];
 			const ItemClass = BaseItem.getClassByItemType(itemType);
-			const items = await ItemClass.modelSelectAll(`SELECT items.id, items.updated_time, sync_items.sync_time FROM ${ItemClass.tableName()} items JOIN sync_items ON sync_items.item_id = items.id`);
+			const items = await ItemClass.modelSelectAll(db.selectFrom(`${ItemClass.tableName()} as items`).innerJoin('sync_items', 'sync_items.item_id', 'items.id').select(['items.id', 'items.updated_time', 'sync_items.sync_time']));
 
 			for (let j = 0; j < items.length; j++) {
 				const item = items[j];

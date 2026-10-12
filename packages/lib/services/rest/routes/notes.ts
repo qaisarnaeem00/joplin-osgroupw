@@ -482,10 +482,12 @@ export default async function(request: Request, id: string = null, link: string 
 			throw new ErrorNotFound();
 		}
 
-		const sql: string[] = [];
-		if (request.query.include_deleted !== '1') sql.push('deleted_time = 0');
-		if (request.query.include_conflicts !== '1') sql.push('is_conflict = 0');
-		return defaultAction(BaseModel.TYPE_NOTE, request, id, link, null, { sql: sql.join(' AND ') });
+		return defaultAction(BaseModel.TYPE_NOTE, request, id, link, null, {
+			expression: eb => eb.and([
+				...(request.query.include_deleted === '1' ? [] : [eb('deleted_time', '=', 0)]),
+				...(request.query.include_conflicts === '1' ? [] : [eb('is_conflict', '=', 0)]),
+			]),
+		});
 	}
 
 	if (request.method === RequestMethod.POST) {

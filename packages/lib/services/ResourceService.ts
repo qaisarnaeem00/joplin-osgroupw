@@ -43,20 +43,14 @@ export default class ResourceService extends BaseService {
 			let foundNoteWithEncryption = false;
 
 			while (true) {
-				const changes: ItemChangeEntity[] = await ItemChange.modelSelectAll(`
-					SELECT id, item_id, type
-					FROM item_changes
-					WHERE item_type = ?
-					AND id > ?
-					ORDER BY id ASC
-					LIMIT 10
-					`, [BaseModel.TYPE_NOTE, Setting.value('resourceService.lastProcessedChangeId')],
-				);
+				const changes: ItemChangeEntity[] = await ItemChange.modelSelectAll(ItemChange.selectQuery(['id', 'item_id', 'type'])
+					.where('item_type', '=', BaseModel.TYPE_NOTE).where('id', '>', Setting.value('resourceService.lastProcessedChangeId'))
+					.orderBy('id', 'asc').limit(10));
 
 				if (!changes.length) break;
 
 				const noteIds = changes.map(a => a.item_id);
-				const notes = await Note.modelSelectAll(`SELECT id, title, body, encryption_applied, is_locked, extracted_resource_ids FROM notes WHERE id IN (${Note.escapeIdsForSql(noteIds)})`);
+				const notes = await Note.modelSelectAll(Note.selectQuery(['id', 'title', 'body', 'encryption_applied', 'is_locked', 'extracted_resource_ids']).where('id', 'in', noteIds));
 
 				const noteById = (noteId: string) => {
 					for (let i = 0; i < notes.length; i++) {

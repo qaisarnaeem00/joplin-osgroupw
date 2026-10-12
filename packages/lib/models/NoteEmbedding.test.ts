@@ -1,5 +1,8 @@
+import { currentDatabase as queryBuilder } from '../services/database/kysely';
 import { setupDatabaseAndSynchronizer, switchClient, db } from '../testing/test-utils';
 import NoteEmbedding from './NoteEmbedding';
+import JoplinDatabase from '../JoplinDatabase';
+import { DatabaseDriverNode } from '../database-driver-node';
 
 // These tests exercise the storage layer end-to-end against a real database with
 // sqlite-vec loaded. Vectors are hand-crafted unit vectors so KNN ordering is
@@ -172,4 +175,49 @@ describe('NoteEmbedding', () => {
 			]),
 		).rejects.toThrow(/dimension/);
 	});
+	it('keeps vector row IDs linked to metadata and pages through vector round trips', async () => {
+		if (skipIfNoVec()) return;
+		const chunks = [
+			{ chunkIndex: 0, chunkText: 'first', vector: [1, 0, 0, 0] },
+			{ chunkIndex: 1, chunkText: 'second', vector: [0, 1, 0, 0] },
+		];
+		await NoteEmbedding.saveChunks('note-page', 'page-model', chunks);
+		const metadata = await NoteEmbedding.byNoteId('note-page');
+		const firstPage = await NoteEmbedding.chunksPage({ limit: 1 });
+		expect(firstPage).toEqual([{
+			rowid: metadata[0].id, noteId: 'note-page', modelId: 'page-model',
+			chunkIndex: 0, chunkText: 'first', vector: chunks[0].vector,
+		}]);
+		const secondPage = await NoteEmbedding.chunksPage({ afterRowid: firstPage[0].rowid, noteIds: ['note-page'], limit: 1 });
+		expect(secondPage[0].rowid).toBe(metadata[1].id);
+		expect(secondPage[0].vector).toEqual(chunks[1].vector);
+		expect(await NoteEmbedding.vectorsByNoteId('note-page')).toEqual(chunks.map(chunk => chunk.vector));
+		expect(await NoteEmbedding.chunksPage({ noteIds: [], limit: 1 })).toEqual([]);
+		expect((await NoteEmbedding.similaritySearch(chunks[0].vector, { k: 1.9 })).length).toBe(1);
+	});
+
+	it('allows metadata operations on a real connection without the vector extension', async () => {
+		const driver = new DatabaseDriverNode();
+		await driver.open({ name: ':memory:' });
+		const connection = new JoplinDatabase(driver);
+		const modelDatabase = jest.spyOn(NoteEmbedding, 'db').mockReturnValue(connection);
+		try {
+			await connection.upgradeDatabase(0);
+			await expect(connection.selectOne(queryBuilder.selectNoFrom(eb => eb.fn<string>('vec_version', []).as('version'))))
+				.rejects.toThrow('no such function');
+			await connection.exec(queryBuilder.insertInto('note_embeddings_meta').values({
+				id: undefined, note_id: 'metadata-only', chunk_index: 0, model_id: 'model', chunk_text: 'text', created_time: Date.now(),
+			}));
+			expect(NoteEmbedding.vectorSearchAvailable()).toBe(false);
+			expect(await NoteEmbedding.countByNoteId('metadata-only')).toBe(1);
+			await expect(NoteEmbedding.similaritySearch([1, 0], { k: 1 })).rejects.toThrow('unavailable');
+			await NoteEmbedding.deleteByNoteId('metadata-only');
+			expect(await NoteEmbedding.countByNoteId('metadata-only')).toBe(0);
+			await NoteEmbedding.clearAll();
+		} finally {
+			modelDatabase.mockRestore();
+			await driver.close();
+		}
+	});
+
 });

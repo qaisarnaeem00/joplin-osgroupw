@@ -1438,6 +1438,7 @@ packages/lib/database-driver-node.js
 packages/lib/database-driver.js
 packages/lib/database.test.js
 packages/lib/database.js
+packages/lib/debug/DebugService.test.js
 packages/lib/debug/DebugService.js
 packages/lib/determineBaseAppDirs.js
 packages/lib/dom.js
@@ -1492,6 +1493,7 @@ packages/lib/markdownUtils.test.js
 packages/lib/markdownUtils.js
 packages/lib/markdownUtils2.test.js
 packages/lib/markupLanguageUtils.js
+packages/lib/migrations/20.test.js
 packages/lib/migrations/20.js
 packages/lib/migrations/27.js
 packages/lib/migrations/33.js
@@ -1670,7 +1672,15 @@ packages/lib/services/commands/stateToWhenClauseContext.js
 packages/lib/services/conflict/isConflictResolutionEnabled.js
 packages/lib/services/contextkey/contextkey.js
 packages/lib/services/database/addMigrationFile.js
+packages/lib/services/database/captureHistoricalUpgradeFixtures.js
+packages/lib/services/database/historicalUpgrades.test.js
 packages/lib/services/database/isSqliteSyntaxError.js
+packages/lib/services/database/kysely.js
+packages/lib/services/database/kyselyBridge.test.js
+packages/lib/services/database/kyselyCompatibility.test.js
+packages/lib/services/database/kyselyPlatform.test.js
+packages/lib/services/database/kyselyRuntime.js
+packages/lib/services/database/kyselySchema.js
 packages/lib/services/database/migrations/42.js
 packages/lib/services/database/migrations/43.js
 packages/lib/services/database/migrations/44.js
@@ -1684,7 +1694,7 @@ packages/lib/services/database/migrations/51.js
 packages/lib/services/database/migrations/52.js
 packages/lib/services/database/migrations/53.js
 packages/lib/services/database/migrations/index.js
-packages/lib/services/database/sqlStringToLines.js
+packages/lib/services/database/sqlite.js
 packages/lib/services/database/types.js
 packages/lib/services/debug/populateDatabase.js
 packages/lib/services/e2ee/EncryptionService.test.js

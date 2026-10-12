@@ -74,6 +74,22 @@ describe('services_SearchFilter', () => {
 	for (const searchType of [SearchEngine.SEARCH_TYPE_FTS, SearchEngine.SEARCH_TYPE_NONLATIN_SCRIPT]) {
 
 		describe(`search type ${searchType}`, () => {
+			it('preserves notebook OR text results and the existing FTS limitation', async () => {
+				const folder = await Folder.save({ title: 'Scoped notebook' });
+				const otherFolder = await Folder.save({ title: 'Other notebook' });
+				const first = await Note.save({ title: 'alpha', parent_id: folder.id });
+				const second = await Note.save({ title: 'beta', parent_id: folder.id });
+				await Note.save({ title: 'alpha beta', parent_id: otherFolder.id });
+				await Note.save({ title: 'gamma', parent_id: folder.id });
+				await engine.syncTables();
+
+				const rows = await engine.search('notebook:"Scoped notebook" any:1 title:alpha title:beta', { searchType });
+				// The original FTS4 query rejects MATCH beneath OR and the engine returns no results.
+				// Basic search keeps the notebook scope around both title alternatives.
+				const expected = searchType === SearchEngine.SEARCH_TYPE_FTS ? [] : [first.id, second.id].sort();
+				expect(ids(rows).sort()).toEqual(expected);
+			});
+
 			it('check case insensitivity for filter keywords', (async () => {
 				let rows;
 				const notebook1 = await Folder.save({ title: 'folderA' });

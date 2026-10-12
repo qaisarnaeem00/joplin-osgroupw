@@ -1,3 +1,4 @@
+import type { BuilderQuery } from './kysely';
 import { ModelType } from "../../BaseModel";
 
 export interface BaseItemEntity {
@@ -24,9 +25,9 @@ export interface SqlQuery {
 	params?: SqlParams;
 }
 
-export type StringOrSqlQuery = string | SqlQuery;
+export type StringOrSqlQuery = string | SqlQuery | BuilderQuery;
 
-export type Migration = () => (SqlQuery|string)[];
+export type Migration = () => StringOrSqlQuery[];
 
 export enum FolderIconType {
   Emoji = 1,

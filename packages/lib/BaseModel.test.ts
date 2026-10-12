@@ -1,4 +1,8 @@
 import BaseModel from './BaseModel';
+import Note from './models/Note';
+import { setupDatabaseAndSynchronizer, switchClient } from './testing/test-utils';
+import paginatedFeed from './models/utils/paginatedFeed';
+import { PaginationOrderDir } from './models/utils/types';
 
 describe('BaseModel', () => {
 	test.each([
@@ -59,5 +63,50 @@ describe('BaseModel', () => {
 		} else {
 			expect(run).not.toThrow();
 		}
+	});
+
+	describe('database queries', () => {
+		beforeEach(async () => {
+			await setupDatabaseAndSynchronizer(1);
+			await switchClient(1);
+		});
+
+		it('preserves quoted IDs, partial updates, defaults and empty ID lists', async () => {
+			const id = 'note\'with quotes';
+			await Note.save({ id, title: 'Original', body: 'Preserved body' }, { isNew: true });
+			await Note.save({ id, title: 'Updated' });
+			expect(await Note.load(id)).toMatchObject({ title: 'Updated', body: 'Preserved body', is_todo: 0 });
+			expect(await Note.byIds([id])).toHaveLength(1);
+			expect(await Note.byIds([])).toEqual([]);
+			await Note.batchDelete([]);
+			expect(await Note.load(id)).toBeTruthy();
+			await Note.batchDelete([id]);
+			expect(await Note.load(id)).toBeFalsy();
+		});
+
+		it('supports structured filters and case insensitive lookup', async () => {
+			await Note.save({ title: 'Mixed Case' });
+			await Note.save({ title: 'Other' });
+			expect(await Note.loadByField('title', 'mixed case', { caseInsensitive: true })).toMatchObject({ title: 'Mixed Case' });
+			expect(await Note.count({ whereBuilder: eb => eb('title', '=', 'Other') })).toBe(1);
+			expect(await Note.all({ whereBuilder: eb => eb('title', '=', 'Other') })).toHaveLength(1);
+		});
+
+		it('paginates tied sort values in a stable ID order', async () => {
+			for (const id of ['c', 'a', 'b']) {
+				await Note.save({ id, title: 'same title' }, { isNew: true });
+			}
+			const pagination = {
+				limit: 2,
+				page: 1,
+				order: [{ by: 'title', dir: PaginationOrderDir.ASC, caseInsensitive: false }],
+			};
+			const first = await paginatedFeed(BaseModel.db(), 'notes', pagination);
+			const second = await paginatedFeed(BaseModel.db(), 'notes', { ...pagination, page: 2 });
+			expect(first.items.map(item => item.id)).toEqual(['a', 'b']);
+			expect(second.items.map(item => item.id)).toEqual(['c']);
+			expect(first.has_more).toBe(true);
+			expect(second.has_more).toBe(false);
+		});
 	});
 });

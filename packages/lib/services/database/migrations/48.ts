@@ -1,7 +1,8 @@
-import { SqlQuery } from '../types';
+import { addColumn } from '../sqlite';
+import { StringOrSqlQuery } from '../types';
 
-export default (): (SqlQuery|string)[] => {
+export default (): StringOrSqlQuery[] => {
 	return [
-		'ALTER TABLE `resources` ADD COLUMN `ocr_driver_id` INT NOT NULL DEFAULT "1"',
+		addColumn('resources', 'ocr_driver_id', 'INT NOT NULL DEFAULT "1"'),
 	];
 };

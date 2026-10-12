@@ -11,6 +11,20 @@ describe('BaseItem', () => {
 		await switchClient(1);
 	});
 
+	it('preserves quoted IDs and target isolation in sync bookkeeping', async () => {
+		const note = await Note.save({ id: 'sync\'quoted', title: 'Quoted sync item' }, { isNew: true });
+		await BaseItem.saveSyncTime(2, note, 100, 150);
+		await BaseItem.saveSyncTime(3, note, 200, 250);
+		expect(await BaseItem.syncItem(2, note.id)).toMatchObject({ sync_time: 100, remote_item_updated_time: 150 });
+		expect(await BaseItem.syncItem(3, note.id)).toMatchObject({ sync_time: 200, remote_item_updated_time: 250 });
+		await BaseItem.saveSyncDisabled(2, note, 'reason\'quoted');
+		expect(await BaseItem.syncDisabledItemsCount(2)).toBe(1);
+		expect(await BaseItem.syncDisabledItemsCount(3)).toBe(0);
+		await BaseItem.ignoreItemSyncWarning(2, note);
+		expect(await BaseItem.syncDisabledItemsCount(2)).toBe(0);
+		expect(await BaseItem.syncDisabledItemsCountIncludingIgnored(2)).toBe(1);
+	});
+
 	afterAll(async () => {
 		await afterAllCleanUp();
 	});

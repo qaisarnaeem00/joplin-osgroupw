@@ -4,6 +4,8 @@ import shim from './shim';
 import { SqlParams, SqlQuery, StringOrSqlQuery } from './services/database/types';
 
 import { Mutex } from 'async-mutex';
+import { BuilderQuery, compile, db as queryBuilder, legacyCondition } from './services/database/kysely';
+import { createTable, transactionCommand } from './services/database/sqlite';
 
 // Row values come back as SQLite primitives (string|number|null|Buffer for BLOBs)
 // but per-table column shapes vary, and callers across the codebase index without
@@ -118,6 +120,8 @@ export default class Database {
 		let sql: string = null;
 		let params: SqlParams = null;
 
+		if (typeof inputSql === 'object' && ('compile' in inputSql || 'parameters' in inputSql)) inputSql = compile(inputSql as BuilderQuery);
+
 		if (typeof inputSql === 'object') {
 			params = (inputSql as SqlQuery).params;
 			sql = (inputSql as SqlQuery).sql;
@@ -174,7 +178,7 @@ export default class Database {
 		}
 	}
 
-	public async selectOne(sql: string, params: SqlParams = null): Promise<Row> {
+	public async selectOne(sql: StringOrSqlQuery, params: SqlParams = null): Promise<Row> {
 		return this.tryCall('selectOne', sql, params);
 	}
 
@@ -187,12 +191,12 @@ export default class Database {
 		}
 	}
 
-	public async selectAll<T = Row>(sql: string, params: SqlParams = null): Promise<T[]> {
+	public async selectAll<T = Row>(sql: StringOrSqlQuery, params: SqlParams = null): Promise<T[]> {
 		return this.tryCall('selectAll', sql, params);
 	}
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Field values are heterogeneous per query (string ids, numbers, booleans); callers across models narrow at use-site
-	public async selectAllFields(sql: string, params: SqlParams, field: string): Promise<any[]> {
+	public async selectAllFields(sql: StringOrSqlQuery, params: SqlParams, field: string): Promise<any[]> {
 		const rows = await this.tryCall('selectAll', sql, params);
 		const output = [];
 		for (let i = 0; i < rows.length; i++) {
@@ -220,16 +224,16 @@ export default class Database {
 		const release = await this.batchTransactionMutex_.acquire();
 
 		try {
-			await this.exec('BEGIN TRANSACTION');
+			await this.exec(transactionCommand('begin'));
 
 			for (let i = 0; i < queries.length; i++) {
 				const query = this.wrapQuery(queries[i]);
 				await this.exec(query.sql, query.params);
 			}
 
-			await this.exec('COMMIT');
+			await this.exec(transactionCommand('commit'));
 		} catch (error) {
-			await this.exec('ROLLBACK');
+			await this.exec(transactionCommand('rollback'));
 			throw error;
 		} finally {
 			release();
@@ -295,85 +299,39 @@ export default class Database {
 	public static insertQuery(tableName: string, data: Record<string, any>) {
 		if (!data || !Object.keys(data).length) throw new Error('Data is empty');
 
-		let keySql = '';
-		let valueSql = '';
-		const params = [];
-		for (const key in data) {
-			if (!data.hasOwnProperty(key)) continue;
-			if (key[key.length - 1] === '_') continue;
-			if (keySql !== '') keySql += ', ';
-			if (valueSql !== '') valueSql += ', ';
-			keySql += `\`${key}\``;
-			valueSql += '?';
-			params.push(data[key]);
-		}
-		return {
-			sql: `INSERT INTO \`${tableName}\` (${keySql}) VALUES (${valueSql})`,
-			params: params,
-		};
+		const values = Object.fromEntries(Object.entries(data).filter(([key]) => !key.endsWith('_')));
+		return compile(queryBuilder.insertInto(tableName).values(values));
 	}
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- See insertQuery above
 	public static updateQuery(tableName: string, data: Record<string, any>, where: string | Record<string, any>) {
 		if (!data || !Object.keys(data).length) throw new Error('Data is empty');
 
-		let sql = '';
-		const params = [];
-		for (const key in data) {
-			if (!data.hasOwnProperty(key)) continue;
-			if (key[key.length - 1] === '_') continue;
-			if (sql !== '') sql += ', ';
-			sql += `\`${key}\`=?`;
-			params.push(data[key]);
+		const values = Object.fromEntries(Object.entries(data).filter(([key]) => !key.endsWith('_')));
+		let query = queryBuilder.updateTable(tableName).set(values);
+		if (typeof where === 'string') {
+			// Retained public compatibility boundary. Internal callers use records or builders.
+			query = query.where(legacyCondition(where));
+		} else {
+			for (const [key, value] of Object.entries(where)) query = query.where(key, '=', value);
 		}
-
-		if (typeof where !== 'string') {
-			const s = [];
-			for (const n in where) {
-				if (!where.hasOwnProperty(n)) continue;
-				params.push(where[n]);
-				s.push(`\`${n}\`=?`);
-			}
-			where = s.join(' AND ');
-		}
-
-		return {
-			sql: `UPDATE \`${tableName}\` SET ${sql} WHERE ${where}`,
-			params: params,
-		};
+		return compile(query);
 	}
 
 	public alterColumnQueries(tableName: string, fields: Record<string, string>) {
-		const fieldsNoType = [];
-		for (const n in fields) {
-			if (!fields.hasOwnProperty(n)) continue;
-			fieldsNoType.push(n);
-		}
-
-		const fieldsWithType = [];
-		for (const n in fields) {
-			if (!fields.hasOwnProperty(n)) continue;
-			fieldsWithType.push(`${this.escapeField(n)} ${fields[n]}`);
-		}
-
-		let sql = `
-			CREATE TEMPORARY TABLE _BACKUP_TABLE_NAME_(_FIELDS_TYPE_);
-			INSERT INTO _BACKUP_TABLE_NAME_ SELECT _FIELDS_NO_TYPE_ FROM _TABLE_NAME_;
-			DROP TABLE _TABLE_NAME_;
-			CREATE TABLE _TABLE_NAME_(_FIELDS_TYPE_);
-			INSERT INTO _TABLE_NAME_ SELECT _FIELDS_NO_TYPE_ FROM _BACKUP_TABLE_NAME_;
-			DROP TABLE _BACKUP_TABLE_NAME_;
-		`;
-
-		sql = sql.replace(/_BACKUP_TABLE_NAME_/g, this.escapeField(`${tableName}_backup`));
-		sql = sql.replace(/_TABLE_NAME_/g, this.escapeField(tableName));
-		sql = sql.replace(/_FIELDS_NO_TYPE_/g, (this.escapeFields(fieldsNoType) as string[]).join(','));
-		sql = sql.replace(/_FIELDS_TYPE_/g, fieldsWithType.join(','));
-
-		return sql.trim().split('\n');
+		const names = Object.keys(fields);
+		const backup = `${tableName}_backup`;
+		return [
+			compile(createTable(backup, fields, true)),
+			compile(queryBuilder.insertInto(backup).columns(names).expression(queryBuilder.selectFrom(tableName).select(names))),
+			compile(queryBuilder.schema.dropTable(tableName)),
+			compile(createTable(tableName, fields)),
+			compile(queryBuilder.insertInto(tableName).columns(names).expression(queryBuilder.selectFrom(backup).select(names))),
+			compile(queryBuilder.schema.dropTable(backup)),
+		];
 	}
 
-	public wrapQueries(queries: (string | SqlQuery | [string, SqlParams?])[]) {
+	public wrapQueries(queries: (StringOrSqlQuery | [string, SqlParams?])[]) {
 		const output = [];
 		for (let i = 0; i < queries.length; i++) {
 			output.push(this.wrapQuery(queries[i]));
@@ -381,7 +339,7 @@ export default class Database {
 		return output;
 	}
 
-	public wrapQuery(sql: string | SqlQuery | [string, SqlParams?], params: SqlParams = null): SqlQuery {
+	public wrapQuery(sql: StringOrSqlQuery | [string, SqlParams?], params: SqlParams = null): SqlQuery {
 		if (!sql) throw new Error(`Cannot wrap empty string: ${sql}`);
 
 		if (Array.isArray(sql)) {
@@ -392,7 +350,7 @@ export default class Database {
 		} else if (typeof sql === 'string') {
 			return { sql: sql, params: params };
 		} else {
-			return sql; // Already wrapped
+			return 'compile' in sql || 'parameters' in sql ? compile(sql as BuilderQuery) : sql as SqlQuery;
 		}
 	}
 }

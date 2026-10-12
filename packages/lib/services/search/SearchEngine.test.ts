@@ -1,3 +1,4 @@
+import type DatabaseDriver from '../../database-driver';
 import { setupDatabaseAndSynchronizer, db, sleep, switchClient, msleep, createNoteAndResource } from '../../testing/test-utils';
 import SearchEngine, { ComplexTerm } from './SearchEngine';
 import Note from '../../models/Note';
@@ -64,6 +65,29 @@ describe('services/SearchEngine', () => {
 
 		engine = new SearchEngine();
 		engine.setDb(db());
+	});
+
+	it('preserves note results when SQLite cannot combine resource MATCH expressions', async () => {
+		const note = await Note.save({ title: 'compatibility' });
+		Setting.setValue('ocr.searchInExtractedContent', true);
+		await engine.syncTables();
+		const driver: DatabaseDriver = db().driver();
+		const selectAll = driver.selectAll.bind(driver);
+		let resourceQueryFailed = false;
+		const failure = jest.spyOn(driver, 'selectAll').mockImplementation(async (statement, parameters) => {
+			if (/from\s+["`]?items_fts/i.test(statement)) {
+				resourceQueryFailed = true;
+				throw new Error('unable to use function MATCH in the requested context');
+			}
+			return selectAll(statement, parameters);
+		});
+		try {
+			const results = await engine.search('compatibility');
+			expect(resourceQueryFailed).toBe(true);
+			expect(results.map(result => result.id)).toEqual([note.id]);
+		} finally {
+			failure.mockRestore();
+		}
 	});
 
 	it('should keep the content and FTS table in sync', (async () => {

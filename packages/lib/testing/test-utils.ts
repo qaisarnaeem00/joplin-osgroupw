@@ -1,3 +1,4 @@
+import { db as queryBuilder } from '../services/database/kysely';
 /* eslint-disable require-atomic-updates */
 import BaseApplication from '../BaseApplication';
 import BaseModel from '../BaseModel';
@@ -341,8 +342,8 @@ async function clearDatabase(id: number = null) {
 
 	const queries = [];
 	for (const n of tableNames) {
-		queries.push(`DELETE FROM ${n}`);
-		queries.push(`DELETE FROM sqlite_sequence WHERE name="${n}"`); // Reset autoincremented IDs
+		queries.push(queryBuilder.deleteFrom(n));
+		queries.push(queryBuilder.deleteFrom('sqlite_sequence').where('name', '=', n)); // Reset autoincremented IDs
 	}
 	await databases_[id].transactionExecBatch(queries);
 }

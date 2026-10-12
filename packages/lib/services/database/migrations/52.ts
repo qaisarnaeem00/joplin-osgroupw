@@ -1,4 +1,6 @@
-import { SqlQuery } from '../types';
+import { db } from '../kysely';
+import { createTable } from '../sqlite';
+import { StringOrSqlQuery } from '../types';
 
 // Storage for the AI embeddings index. Two tables:
 //
@@ -16,17 +18,17 @@ import { SqlQuery } from '../types';
 // Neither table is synced — embeddings are large, model-specific, and easily
 // re-derivable on demand.
 
-export default (): (SqlQuery|string)[] => {
+export default (): StringOrSqlQuery[] => {
 	return [
-		`CREATE TABLE IF NOT EXISTS note_embeddings_meta (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			note_id TEXT NOT NULL,
-			chunk_index INTEGER NOT NULL,
-			model_id TEXT NOT NULL,
-			chunk_text TEXT NOT NULL,
-			created_time INT NOT NULL DEFAULT 0
-		)`,
-		'CREATE INDEX IF NOT EXISTS note_embeddings_meta_note_id ON note_embeddings_meta(note_id)',
-		'CREATE UNIQUE INDEX IF NOT EXISTS note_embeddings_meta_note_chunk ON note_embeddings_meta(note_id, chunk_index)',
+		createTable('note_embeddings_meta', {
+			id: 'INTEGER PRIMARY KEY AUTOINCREMENT',
+			note_id: 'TEXT NOT NULL',
+			chunk_index: 'INTEGER NOT NULL',
+			model_id: 'TEXT NOT NULL',
+			chunk_text: 'TEXT NOT NULL',
+			created_time: 'INT NOT NULL DEFAULT 0',
+		}).ifNotExists(),
+		db.schema.createIndex('note_embeddings_meta_note_id').ifNotExists().on('note_embeddings_meta').column('note_id'),
+		db.schema.createIndex('note_embeddings_meta_note_chunk').ifNotExists().unique().on('note_embeddings_meta').columns(['note_id', 'chunk_index']),
 	];
 };

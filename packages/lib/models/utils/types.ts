@@ -1,3 +1,5 @@
+import type { Expression, ExpressionBuilder, SqlBool } from 'kysely';
+import type { DynamicDatabase } from '../../services/database/kysely';
 import { SqlQuery } from '../../services/database/types';
 import type { DecryptedNoteLockKey } from '../../services/noteLock/NoteLockKey';
 
@@ -22,7 +24,9 @@ export interface Pagination {
 export interface LoadOptions {
 	caseInsensitive?: boolean;
 	fields?: string | string[];
+	// Public SQL compatibility option. Internal callers use whereBuilder.
 	where?: string;
+	whereBuilder?: (eb: ExpressionBuilder<DynamicDatabase, string>)=> Expression<SqlBool>;
 	whereParams?: (string | number | boolean)[];
 	order?: {
 		by: string;

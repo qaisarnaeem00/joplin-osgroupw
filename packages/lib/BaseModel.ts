@@ -1,4 +1,7 @@
-import paginationToSql from './models/utils/paginationToSql';
+import paginationToSql, { applyQueryOrder } from './models/utils/paginationToSql';
+import { db as queryBuilder, compile, collateNoCase, legacyCondition, BuilderQuery } from './services/database/kysely';
+import type { SelectQueryBuilder, Expression, ExpressionBuilder, SqlBool } from 'kysely';
+import type { DynamicDatabase } from './services/database/kysely';
 import Database from './database';
 import time from './time';
 import JoplinDatabase, { TableField } from './JoplinDatabase';
@@ -30,9 +33,10 @@ export enum ModelType {
 	ConflictNoteState = 18,
 }
 
-export interface SearchOptions {
+export interface SearchOptions extends LoadOptions {
 	fields?: string | string[];
 	conditions?: string[];
+	conditionsBuilder?: ((eb: ExpressionBuilder<DynamicDatabase, string>)=> Expression<SqlBool>)[];
 	conditionsParams?: (string | number | boolean)[];
 	titlePattern?: string;
 	limit?: number;
@@ -287,16 +291,12 @@ class BaseModel {
 		return options;
 	}
 
-	public static count(options: { where?: string } = null) {
-		if (!options) options = {};
-		let sql = `SELECT count(*) as total FROM \`${this.tableName()}\``;
-		if (options.where) sql += ` WHERE ${options.where}`;
-		return this.db()
-			.selectOne(sql)
-		// eslint-disable-next-line promise/prefer-await-to-then -- Old code before rule was applied
-			.then((r: { total?: number } | null) => {
-				return r ? r['total'] : 0;
-			});
+	public static async count(options: LoadOptions = null) {
+		let query = queryBuilder.selectFrom(this.tableName()).select(eb => eb.fn.countAll().as('total'));
+		if (options?.whereBuilder) query = query.where(options.whereBuilder);
+		if (options?.where) query = query.where(legacyCondition(options.where, options.whereParams));
+		const row = await this.db().selectOne(compile(query));
+		return row ? row.total : 0;
 	}
 
 	public static load(id: string, options: LoadOptions = null) {
@@ -308,9 +308,10 @@ class BaseModel {
 	}
 
 	public static loadByPartialId(partialId: string) {
-		return this.modelSelectAll(`SELECT * FROM \`${this.tableName()}\` WHERE \`id\` LIKE ?`, [`${partialId}%`]);
+		return this.modelSelectAll(this.selectQuery().where('id', 'like', `${partialId}%`));
 	}
 
+	// Compatibility API for external SQL consumers. Internal callers use applyQueryOptions.
 	public static applySqlOptions(options: LoadOptions, sql: string, params: (string | number | boolean)[] = null) {
 		if (!options) options = {};
 
@@ -329,25 +330,27 @@ class BaseModel {
 		return { sql: sql, params: params };
 	}
 
+	public static selectQuery(fields: string | string[] = '*') {
+		const query = queryBuilder.selectFrom(this.tableName());
+		return fields === '*' ? query.selectAll() : query.select(typeof fields === 'string' ? [fields] : fields);
+	}
+
+	public static applyQueryOptions<O>(options: LoadOptions, query: SelectQueryBuilder<DynamicDatabase, string, O>) {
+		if (!options) return query;
+		if (options.whereBuilder) query = query.where(options.whereBuilder);
+		if (options.where) query = query.where(legacyCondition(options.where, options.whereParams));
+		query = applyQueryOrder(query, options.order || [], options.caseInsensitive);
+		if (options.limit) query = query.limit(options.limit);
+		return query;
+	}
+
 	public static async allIds(options: LoadOptions = null) {
-		const q = this.applySqlOptions(options, `SELECT id FROM \`${this.tableName()}\``);
-		const rows: { id: string }[] = await this.db().selectAll(q.sql, q.params);
+		const rows = await this.db().selectAll<{ id: string }>(compile(this.applyQueryOptions(options, this.selectQuery(['id']))));
 		return rows.map(r => r.id);
 	}
 
 	public static async all(options: LoadOptions = null) {
-		if (!options) options = {};
-		if (!options.fields) options.fields = '*';
-
-		let sql = `SELECT ${this.db().escapeFields(options.fields)} FROM \`${this.tableName()}\``;
-		let params: (string | number | boolean)[] = [];
-		if (options.where) {
-			sql += ` WHERE ${options.where}`;
-			if (options.whereParams) params = params.concat(options.whereParams);
-		}
-
-		const q = this.applySqlOptions(options, sql, params);
-		return this.modelSelectAll(q.sql, q.params);
+		return this.modelSelectAll(this.applyQueryOptions(options, this.selectQuery(options?.fields || '*')));
 	}
 
 	public static escapeIdsForSql(ids: string[]) {
@@ -356,44 +359,28 @@ class BaseModel {
 
 	public static async byIds(ids: string[], options: LoadOptions = null) {
 		if (!ids.length) return [];
-		if (!options) options = {};
-		if (!options.fields) options.fields = '*';
-
-		let sql = `SELECT ${this.db().escapeFields(options.fields)} FROM \`${this.tableName()}\``;
-		sql += ` WHERE id IN (${this.escapeIdsForSql(ids)})`;
-		const q = this.applySqlOptions(options, sql);
-		return this.modelSelectAll(q.sql);
+		return this.modelSelectAll(this.applyQueryOptions(options, this.selectQuery(options?.fields || '*').where('id', 'in', ids)));
 	}
 
 	public static async search(options: SearchOptions = null) {
 		if (!options) options = {};
-		if (!options.fields) options.fields = '*';
-
-		const conditions = options.conditions ? options.conditions.slice(0) : [];
-		const params: (string | number | boolean)[] = options.conditionsParams ? options.conditionsParams.slice(0) : [];
-
-		if (options.titlePattern) {
-			const pattern = options.titlePattern.replace(/\*/g, '%');
-			conditions.push('title LIKE ?');
-			params.push(pattern);
-		}
-
 		if ('limit' in options && options.limit <= 0) return [];
-
-		let sql = `SELECT ${this.db().escapeFields(options.fields)} FROM \`${this.tableName()}\``;
-		if (conditions.length) sql += ` WHERE ${conditions.join(' AND ')}`;
-
-		const query = this.applySqlOptions(options, sql, params);
-		return this.modelSelectAll(query.sql, query.params);
+		let query = this.selectQuery(options.fields || '*');
+		for (const condition of options.conditionsBuilder || []) query = query.where(condition);
+		// Conditions supplied through the public model API remain a compatibility boundary.
+		if (options.conditions?.length) query = query.where(legacyCondition(options.conditions.join(' AND '), options.conditionsParams || []));
+		if (options.titlePattern) query = query.where('title', 'like', options.titlePattern.replace(/\*/g, '%'));
+		return this.modelSelectAll(this.applyQueryOptions(options, query));
 	}
 
-	public static async modelSelectOne(sqlOrSqlQuery: string | SqlQuery, params: (string | number | boolean)[] = null) {
+	public static async modelSelectOne(sqlOrSqlQuery: string | SqlQuery | BuilderQuery, params: (string | number | boolean)[] = null) {
 		if (params === null) params = [];
 		let sql = '';
 
 		if (typeof sqlOrSqlQuery !== 'string') {
-			sql = sqlOrSqlQuery.sql;
-			params = sqlOrSqlQuery.params ? sqlOrSqlQuery.params : [];
+			const query = 'compile' in sqlOrSqlQuery || 'parameters' in sqlOrSqlQuery ? compile(sqlOrSqlQuery as BuilderQuery) : sqlOrSqlQuery as SqlQuery;
+			sql = query.sql;
+			params = query.params || [];
 		} else {
 			sql = sqlOrSqlQuery;
 		}
@@ -408,13 +395,14 @@ class BaseModel {
 	}
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- T defaults to any so untyped callers (which return per-entity rows narrowed at use site) still compile
-	public static async modelSelectAll<T = any>(sqlOrSqlQuery: string | SqlQuery, params: (string | number | boolean)[] = null): Promise<T[]> {
+	public static async modelSelectAll<T = any>(sqlOrSqlQuery: string | SqlQuery | BuilderQuery, params: (string | number | boolean)[] = null): Promise<T[]> {
 		if (params === null) params = [];
 		let sql = '';
 
 		if (typeof sqlOrSqlQuery !== 'string') {
-			sql = sqlOrSqlQuery.sql;
-			params = sqlOrSqlQuery.params ? sqlOrSqlQuery.params : [];
+			const query = 'compile' in sqlOrSqlQuery || 'parameters' in sqlOrSqlQuery ? compile(sqlOrSqlQuery as BuilderQuery) : sqlOrSqlQuery as SqlQuery;
+			sql = query.sql;
+			params = query.params || [];
 		} else {
 			sql = sqlOrSqlQuery;
 		}
@@ -434,31 +422,23 @@ class BaseModel {
 	}
 
 	public static loadByField(fieldName: string, fieldValue: string | number | boolean, options: LoadOptions = null) {
-		if (!options) options = {};
-		if (!('caseInsensitive' in options)) options.caseInsensitive = false;
-		if (!options.fields) options.fields = '*';
-		let sql = `SELECT ${this.db().escapeFields(options.fields)} FROM \`${this.tableName()}\` WHERE \`${fieldName}\` = ?`;
-		if (options.caseInsensitive) sql += ' COLLATE NOCASE';
-		return this.modelSelectOne(sql, [fieldValue]);
+		const field = options?.caseInsensitive ? collateNoCase(fieldName) : fieldName;
+		return this.modelSelectOne(this.selectQuery(options?.fields || '*').where(field, '=', fieldValue));
 	}
 
 	public static loadByFields(fields: Record<string, string | number | boolean>, options: LoadOptions = null) {
-		if (!options) options = {};
-		if (!('caseInsensitive' in options)) options.caseInsensitive = false;
-		if (!options.fields) options.fields = '*';
-		const whereSql = [];
-		const params: (string | number | boolean)[] = [];
-		for (const fieldName in fields) {
-			whereSql.push(`\`${fieldName}\` = ?`);
-			params.push(fields[fieldName]);
+		let query = this.selectQuery(options?.fields || '*');
+		const names = Object.keys(fields);
+		for (const [index, name] of names.entries()) {
+			// The original API applies its trailing collation to the last comparison.
+			const field = options?.caseInsensitive && index === names.length - 1 ? collateNoCase(name) : name;
+			query = query.where(field, '=', fields[name]);
 		}
-		let sql = `SELECT ${this.db().escapeFields(options.fields)} FROM \`${this.tableName()}\` WHERE ${whereSql.join(' AND ')}`;
-		if (options.caseInsensitive) sql += ' COLLATE NOCASE';
-		return this.modelSelectOne(sql, params);
+		return this.modelSelectOne(query);
 	}
 
 	public static loadByTitle(fieldValue: string) {
-		return this.modelSelectOne(`SELECT * FROM \`${this.tableName()}\` WHERE \`title\` = ?`, [fieldValue]);
+		return this.loadByField('title', fieldValue);
 	}
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- old/new models are per-table entities (NoteEntity, FolderEntity, etc.); diff iterates dynamically over keys
@@ -755,7 +735,7 @@ class BaseModel {
 		if (!id) throw new Error('Cannot delete object without an ID');
 		ActionLogger.from(options?.sourceDescription).log(ItemActionType.Delete, id);
 
-		return this.db().exec(`DELETE FROM ${this.tableName()} WHERE id = ?`, [id]);
+		return this.db().exec(compile(queryBuilder.deleteFrom(this.tableName()).where('id', '=', id)));
 	}
 
 	public static async batchDelete(ids: string[], options?: DeleteOptions) {
@@ -764,8 +744,7 @@ class BaseModel {
 
 		options = this.modOptions(options);
 		const idFieldName = options.idFieldName ? options.idFieldName : 'id';
-		const sql = `DELETE FROM ${this.tableName()} WHERE ${idFieldName} IN (${this.escapeIdsForSql(ids)})`;
-		await this.db().exec(sql);
+		await this.db().exec(compile(queryBuilder.deleteFrom(this.tableName()).where(idFieldName, 'in', ids)));
 	}
 
 	public static db() {

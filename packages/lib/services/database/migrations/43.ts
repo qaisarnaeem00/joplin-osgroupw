@@ -1,10 +1,11 @@
-import { SqlQuery } from '../types';
+import { addColumn } from '../sqlite';
+import { StringOrSqlQuery } from '../types';
 
-export default (): (SqlQuery|string)[] => {
+export default (): StringOrSqlQuery[] => {
 	return [
-		'ALTER TABLE `notes` ADD COLUMN `user_data` TEXT NOT NULL DEFAULT ""',
-		'ALTER TABLE `tags` ADD COLUMN `user_data` TEXT NOT NULL DEFAULT ""',
-		'ALTER TABLE `folders` ADD COLUMN `user_data` TEXT NOT NULL DEFAULT ""',
-		'ALTER TABLE `resources` ADD COLUMN `user_data` TEXT NOT NULL DEFAULT ""',
+		addColumn('notes', 'user_data', 'TEXT NOT NULL DEFAULT ""'),
+		addColumn('tags', 'user_data', 'TEXT NOT NULL DEFAULT ""'),
+		addColumn('folders', 'user_data', 'TEXT NOT NULL DEFAULT ""'),
+		addColumn('resources', 'user_data', 'TEXT NOT NULL DEFAULT ""'),
 	];
 };
